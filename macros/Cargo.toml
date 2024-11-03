@@ -1,0 +1,15 @@
+[package]
+name = "macros"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+# serde = { version = "1.0.204", default-features = false, features = ["derive"] }
+# basic-toml = "0.1.9"
+# regex = "1.10.5"
+proc-macro2 = "*"
+quote = "*"
+syn = { version = "*", features = [ "full" ] }
