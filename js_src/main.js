@@ -40,8 +40,16 @@ function loaded_loop() {
     } else {
         try {
             running = true;
-            delete global.Memory;
-            global.Memory = {};
+
+            global.cmds = {};
+
+            for (let key in bot) {
+                if (key.startsWith('cmd_')) {
+                    const cmd = key.slice(4);
+                    global.cmds[cmd] = bot[key];
+                }
+            }
+
             bot.loop();
             // if execution doesn't get to this point for any reason (error or out-of-CPU
             // cancellation), setting to false won't happen which will cause a halt() next tick

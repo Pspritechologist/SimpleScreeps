@@ -25,11 +25,17 @@ macros = { path = "macros" }
 
 fastrand = "*"
 serde = { version = "*", features = [ "derive" ] }
-# serde_json = "*"
+# serde-wasm-bindgen = "*"
 bitcode = { version = "*", features = [ "serde" ] }
-dlhn = "*"
 base64 = "*"
 vecmap-rs = { version = "*", features = [ "serde" ] }
+
+[build-dependencies]
+reqwest = { version = "*", features = [ "json", "blocking" ] }
+futures = { version = "*", features = [ "executor" ] }
+serde = { version = "*", features = [ "derive" ] }
+bitcode = { version = "*", features = [ "serde" ] }
+serde_json = "*"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"

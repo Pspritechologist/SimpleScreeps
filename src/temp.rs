@@ -1,11 +1,11 @@
-use std::cell::RefCell;
 use base64::Engine;
-use screeps::{prelude::*, ConstructionSite, Creep, Direction, ObjectId, Position, StructureSpawn};
-use screeps::{find, HasPosition, Part, ResourceType, SharedCreepProperties, Source, SpawnOptions};
+use macros::ratios;
+use screeps::{prelude::*, ConstructionSite, Creep, Direction, ObjectId, Position, RoomName, Structure, StructureContainer, StructureController, StructureObject, StructureSpawn};
+use screeps::{HasPosition, Part, Source, SpawnOptions};
 use vecmap::VecMap;
 
 use crate::creep_dispatch::DispatchContext;
-use crate::utils::IterEnum;
+use crate::utils::{chance, IterEnum};
 
 use super::{handle_err, handle_warn};
 
@@ -13,24 +13,10 @@ type CreepId = ObjectId<Creep>;
 type SourceId = ObjectId<Source>;
 type ConstructId = ObjectId<ConstructionSite>;
 
-type MemData = VecMap<CreepId, CreepData>;
-
-thread_local! {
-	static NAME_COUNT: RefCell<u128> = const { RefCell::new(0) };
-	pub static CREEP_COUNT: RefCell<usize> = const { RefCell::new(0) };
-}
-
-fn get_new_creep_name() -> String {
-	NAME_COUNT.with(|count| {
-		let mut count = count.borrow_mut();
-		let name = count.to_string();
-		*count += 1;
-		name
-	})
-}
+pub type MemData = VecMap<CreepId, CreepData>;
 
 pub fn tick() {
-	let data = base64::prelude::BASE64_STANDARD.decode(
+	let data = base64::prelude::BASE64_STANDARD_NO_PAD.decode(
 		screeps::raw_memory::get().as_string().unwrap()
 	).unwrap_or_else(|err| {
 		log::error!("Failed to decode memory: '{err}'. Dumping memory...");
@@ -38,7 +24,7 @@ pub fn tick() {
 		bitcode::serialize(&MemData::new()).unwrap()
 	});
 
-	let mut data = if let Ok(data) = bitcode::deserialize(&data) {
+	let mut global_memory = if let Ok(data) = bitcode::deserialize(&data) {
 		data
 	} else {
 		log::error!("Memory not valid Bitcode! Dumping memory...");
@@ -46,43 +32,66 @@ pub fn tick() {
 		MemData::new()
 	};
 
+	js_sys::Reflect::delete_property(&js_sys::global(), &wasm_bindgen::JsValue::from_str("Memory")).unwrap();
+	js_sys::Reflect::set(&js_sys::global(), &wasm_bindgen::JsValue::from_str("Memory"), &js_sys::Object::default().into()).unwrap();
+
 	let spawn = screeps::game::spawns().values().next().expect("No spawns!");
 
 	let creeps = screeps::game::creeps();
-	CREEP_COUNT.replace(creeps.keys().count());
-	let count = CREEP_COUNT.with(|count| *count.borrow());
+	let count = creeps.keys().count();
 
-	if count < 4 {
-		handle_warn!(spawn.spawn_creep_with_options(&[ Part::Move, Part::Move, Part::Carry, Part::Work ], &get_new_creep_name(), &SpawnOptions::default()));
+	if count < 12 || super::UNIQUE_QUEUE.with(|queue| queue.borrow().len()) > 0 {
+		handle_warn!(spawn.spawn_creep_with_options(&[ Part::Move, Part::Move, Part::Carry, Part::Work ], &super::get_new_creep_name(&creeps.keys().collect::<Vec<_>>()), &SpawnOptions::default()));
 	}
 
 	let mut dispatch = DispatchContext::new(count);
 
 	for creep in creeps.values() {
-		if fastrand::u8(..=50) == 50 { handle_err!(creep.say("uwu", true)) }
+		if chance(1) { handle_err!(creep.say(fastrand::choice(crate::QUOTES).unwrap(), true)) }
 
-		let data = if data.contains_key(&creep.try_id().unwrap()) {
-			data.get_mut(&creep.try_id().unwrap()).unwrap()
+		let Some(id) = creep.try_id() else { continue };
+
+		let data = if global_memory.contains_key(&id) {
+			global_memory.get_mut(&id).unwrap()
 		} else {
-			data.insert(creep.try_id().unwrap(), CreepData {
-				duties: vec![ Duty::Harvest, Duty::Build, Duty::Repair ],
-				idle_pos: spawn.pos().checked_add_direction(Direction::Top.multi_rot(fastrand::i8(..))).expect("OUT OF BOUNDS"),
-				target: None,
-				spawn: Some(spawn.clone()),
-			});
+			if let Some(task) = super::UNIQUE_QUEUE.with(|queue| queue.borrow_mut().pop()) {
+				log::info!("Assigning unique task to creep: {:?}", task);
 
-			data.get_mut(&creep.try_id().unwrap()).unwrap()
+				let (task_data, _) = crate::unique_tasks::handle_task(task);
+				global_memory.insert(id, task_data);
+				
+				global_memory.get_mut(&id).unwrap()
+			} else {
+				global_memory.insert(id, CreepData {
+					duties: vec![ Duty::Harvest, Duty::Build, Duty::Repair, Duty::Upgrade ],
+					current_task: None,
+					unique_task: None,
+					idle_pos: spawn.pos().checked_add_direction(Direction::Top.multi_rot(fastrand::i8(..))).expect("OUT OF BOUNDS"),
+					target: None,
+					spawn: Some(spawn.clone()),
+				});
+
+				global_memory.get_mut(&id).unwrap()
+			}
 		};
 
-		dispatch.dispatch_creep(creep, data);
+		dispatch.dispatch_creep(&creep, data);
 	}
 
-	screeps::raw_memory::set(&base64::prelude::BASE64_STANDARD.encode(bitcode::serialize(&data).unwrap()).into());
+	// Log unfulfilled duties.
+	// for (duty, count) in dispatch.get_fulfilment().iter() {
+	// 	if *count == 0 { continue }
+	// 	log::warn!("Duty {:?} was unfulfilled: {}", duty, count);
+	// }
+
+	screeps::raw_memory::set(&base64::prelude::BASE64_STANDARD_NO_PAD.encode(bitcode::serialize(&global_memory).unwrap()).into());
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct CreepData {
 	pub duties: Vec<Duty>,
+	pub current_task: Option<Duty>,
+	pub unique_task: Option<crate::unique_tasks::UniqueTask>,
 	pub target: Option<Target>,
 	pub idle_pos: Position,
 	#[serde(with = "deser_struct")]
@@ -99,14 +108,18 @@ mod deser_struct {
 
 	pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<StructureSpawn>, D::Error> where D: serde::Deserializer<'de> {
 		let id = Option::<ObjectId<StructureSpawn>>::deserialize(deserializer)?;
-		Ok(id.map(|id| id.resolve().unwrap()))
+		Ok(id.and_then(|id| id.resolve()))
 	}
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum Target {
 	Source(SourceId),
-	// ConstructionSite(ConstructId),
+	ConstructionSite(ConstructId),
+	Controller(ObjectId<StructureController>),
+	EnergyStorage(ObjectId<Structure>),
+	Position(Position),
+	Room(RoomName),
 }
 
 // impl Target {
@@ -118,22 +131,20 @@ pub enum Target {
 // 	}
 // }
 
+#[ratios]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, macros::IterEnum, serde::Serialize, serde::Deserialize)]
 pub enum Duty {
+	#[ratio(0)]
 	Repair,
+	#[ratio(0)]
 	Build,
+	#[ratio(4)]
 	Harvest,
+	#[ratio(7)]
+	Upgrade,
 }
 
 impl Duty {
-	pub fn get_ratio(&self) -> usize {
-		match self {
-			Self::Build => 2,
-			Self::Harvest => 10,
-			Self::Repair => 5,
-		}
-	}
-
 	pub fn get_ratios() -> VecMap<Self, usize> {
 		Self::variants().iter().map(
 			|duty| (*duty, duty.get_ratio())
