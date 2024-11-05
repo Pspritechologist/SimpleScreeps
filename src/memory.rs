@@ -2,11 +2,9 @@ use base64::Engine;
 use screeps::{Creep, ObjectId};
 use vecmap::VecMap;
 
-use crate::state_machine::State;
-
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct MemData {
-	pub states: VecMap<ObjectId<Creep>, State>,
+	// pub states: VecMap<ObjectId<Creep>, State>,
 }
 
 pub fn get_memory() -> MemData {

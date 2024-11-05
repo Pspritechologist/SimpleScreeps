@@ -42,15 +42,6 @@ pub fn setup_logging(verbosity: log::LevelFilter) {
             ))
         })
         .chain(Box::new(JsLog) as Box<dyn log::Log>)
-        .chain(
-            fern::Dispatch::new()
-                .level(log::LevelFilter::Warn)
-                .format(|out, message, _record| {
-                    let time = game::time();
-                    out.finish(format_args!("[{}] {}", time, message))
-                })
-                .chain(Box::new(JsNotify) as Box<dyn log::Log>),
-        )
         .apply()
         .expect("expected setup_logging to only ever be called once per instance");
     panic::set_hook(Box::new(panic_hook));

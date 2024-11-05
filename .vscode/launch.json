@@ -7,10 +7,66 @@
 		{
 			"type": "node-terminal",
 			"request": "launch",
-			"name": "Build and Copy",
+			"name": "Upload code",
 			"command": "npm run deploy -- --server simplescreeps; exit",
 			// Don't open the terminal
 			"internalConsoleOptions": "neverOpen",
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug unit tests in library 'screepies'",
+			"cargo": {
+				"args": [
+					"test",
+					"--no-run",
+					"--lib",
+					"--package=screepies"
+				],
+				"filter": {
+					"name": "screepies",
+					"kind": "lib"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug executable 'screepies'",
+			"cargo": {
+				"args": [
+					"build",
+					"--bin=screepies",
+					"--package=screepies"
+				],
+				"filter": {
+					"name": "screepies",
+					"kind": "bin"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug unit tests in executable 'screepies'",
+			"cargo": {
+				"args": [
+					"test",
+					"--no-run",
+					"--bin=screepies",
+					"--package=screepies"
+				],
+				"filter": {
+					"name": "screepies",
+					"kind": "bin"
+				}
+			},
+			"args": [],
+			"cwd": "${workspaceFolder}"
 		}
 	]
 }

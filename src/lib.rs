@@ -8,8 +8,9 @@ use wasm_bindgen::prelude::*;
 pub mod logging;
 pub mod utils;
 pub mod cmds;
-pub mod state_machine;
+pub mod htn_vm;
 pub mod memory;
+pub mod parser;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 
@@ -49,7 +50,7 @@ pub fn game_loop() {
 		for cont in energy_containers {
 			let creep_obj: &js_sys::Object = creeps.values().next().unwrap().dyn_ref().unwrap();
 
-			creep_obj
+			// creep_obj
 		}
 
 		let sites = room.find(find::MY_CONSTRUCTION_SITES, None);
