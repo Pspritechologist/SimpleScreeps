@@ -1,78 +1,15 @@
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::collapsible_else_if)]
 
-use std::cell::RefCell;
-
-use log::*;
-use screeps::game;
-use unique_tasks::QueuedUniqueTask;
+use screeps::{prelude::*, find, game, Room, StructureSpawn};
+use vecmap::VecMap;
 use wasm_bindgen::prelude::*;
 
-mod logging;
-mod temp;
-mod creep_dispatch;
+pub mod logging;
 pub mod utils;
 pub mod cmds;
-pub mod unique_tasks;
-
-const NAME_DATA: &[u8] = include_bytes!("../data/names.bit");
-const QUOTES: &[&str] = &[
-	// 10 characters limit.
-	"Im a creep",
-	"A loserrr"	,
-	"uwu"		,
-	"owo"		,
-	"awa"		,
-	"nya"		,
-	"uwu"		,
-	"owo"		,
-	"awa"		,
-	"nya"		,
-	"uwu"		,
-	"owo"		,
-	"uwu"		,
-	"owo"		,
-	"uwu"		,
-	"owo"		,
-	"Death eggs",
-	"are wet"	,
-	"bungo"		,
-	"bongo"		,
-	"bingo"		,
-	"Hello!"	,
-	"Hi there!"	,
-	"Howdy!"	,
-	"Greetings!",
-	"Howdy doo!",
-	"Hey!"		,
-	"Listen!"	,
-	"Watch out!",
-	"Behind you",
-	"Boo!"		,
-	"Dark days"	,
-	"Roll bluff",
-	"Hyaah!"	,
-	"Your mom!"	,
-	"Nyeh hehe!",
-];
-
-thread_local! {
-	pub static NAMES: Vec<String> = bitcode::decode(NAME_DATA).unwrap();
-	pub static UNIQUE_QUEUE: RefCell<Vec<QueuedUniqueTask>> = const { RefCell::new(Vec::new()) };
-}
-
-pub fn get_new_creep_name(used: &[String]) -> String {
-	crate::NAMES.with(|names| {
-		loop {
-			let name = fastrand::choice(names.iter()).unwrap();
-			if used.contains(name) {
-				continue;
-			} else {
-				return name.clone();
-			}
-		}
-	})
-}
+pub mod state_machine;
+pub mod memory;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 
@@ -85,10 +22,40 @@ pub fn game_loop() {
 		logging::setup_logging(logging::Info);
 	});
 
-	debug!("loop starting! CPU: {}", game::cpu::get_used());
+	let total_cpu = screeps::game::cpu::get_used();
 
-	temp::tick();
+	let cpu = screeps::game::cpu::get_used();
+	let global_memory = memory::get_memory();
+	log::trace!("Spent {} CPU on memory access", screeps::game::cpu::get_used() - cpu);
 
-	debug!("done! cpu: {}", game::cpu::get_used());
-	// info!("");
+	let spawns = game::spawns().values();
+	let owned_rooms: VecMap<Room, Vec<StructureSpawn>> = spawns.fold(VecMap::new(), |mut acc, spawn| {
+		let room = spawn.room().expect("Spawner has no Room!");
+		acc.entry(room).or_default().push(spawn);
+		acc
+	});
+
+	let creeps = game::creeps_jsstring();
+
+	for (room, spawns) in owned_rooms {
+		log::trace!("Handling room: {} with spawns: {}", room.name(), spawns.iter().map(|s| s.name()).collect::<Vec<_>>().join(", "));
+
+		let sources = room.find(find::SOURCES_ACTIVE, None);
+		let controller = room.controller();
+		let structures = room.find(find::MY_STRUCTURES, None);
+
+		let energy_containers = structures.iter().filter_map(|s| s.as_transferable());
+
+		for cont in energy_containers {
+			let creep_obj: &js_sys::Object = creeps.values().next().unwrap().dyn_ref().unwrap();
+
+			creep_obj
+		}
+
+		let sites = room.find(find::MY_CONSTRUCTION_SITES, None);
+
+
+	}
+
+	log::debug!("CPU used during tick: {}", screeps::game::cpu::get_used() - total_cpu);
 }
