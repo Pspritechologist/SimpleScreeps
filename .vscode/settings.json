@@ -1,5 +1,7 @@
 {
 	"cSpell.words": [
 		"screeps"
-	]
+	],
+	"rust-analyzer.check.command": "check",
+	"rust-analyzer.inlayHints.chainingHints.enable": false, // Fucking awful with Chumsky.
 }

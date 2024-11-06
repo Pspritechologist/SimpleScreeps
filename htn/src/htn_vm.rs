@@ -4,15 +4,7 @@ use js_sys::Object;
 use vecmap::VecMap;
 use wasm_bindgen::{JsCast, JsValue};
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum VmValue {
-	Null,
-	Bool(bool),
-	Number(Num),
-	String(String),
-	List(Vec<VmValue>),
-	Map(VecMap<String, VmValue>),
-}
+use super::parsing::tokens::VmValue;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Num {
@@ -165,7 +157,7 @@ mod blackboard_serde {
 }
 
 impl HtnVm {
-	fn execute(mut self) -> Result<EndState, Error> {
+	async fn execute(mut self) -> Result<EndState, Error> {
 		use Operation::*;
 
 		let mut stack = Stack::default();

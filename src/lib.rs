@@ -8,9 +8,7 @@ use wasm_bindgen::prelude::*;
 pub mod logging;
 pub mod utils;
 pub mod cmds;
-pub mod htn_vm;
 pub mod memory;
-pub mod parser;
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 

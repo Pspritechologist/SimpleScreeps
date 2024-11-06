@@ -1,0 +1,19 @@
+[package]
+name = "htn"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+js-sys = "*"
+# log = "*"
+# fern = "*"
+# screeps-game-api = "*"
+wasm-bindgen = "*"
+# web-sys = { version = "*", features = [ "console" ] }
+
+macros = { path = "../macros" }
+
+serde = { version = "*", features = [ "derive" ] }
+vecmap-rs = { version = "*", features = [ "serde" ] }
+chumsky = { version = "1.0.0-alpha.7" }
+unescape = "*"
