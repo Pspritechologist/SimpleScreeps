@@ -19,6 +19,10 @@ pub enum Keyword {
 	Null,
 	If,
 	Else,
+	Exit,
+	// Success,
+	// Failure,
+	// Running,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
@@ -37,6 +41,8 @@ pub enum OpSym {
 	Lte,
 	Gte,
 	Not,
+	NullC,
+	Dbg,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
@@ -47,6 +53,7 @@ pub enum FlowSym {
 	CloseBrace,
 	OpenSquare,
 	CloseSquare,
+	Colon,
 	Comma,
 	Dot,
 	LineEnd,
@@ -75,6 +82,10 @@ impl Display for Keyword {
 			Keyword::Null => write!(f, "Null"),
 			Keyword::If => write!(f, "if"),
 			Keyword::Else => write!(f, "else"),
+			Keyword::Exit => write!(f, "exit"),
+			// Keyword::Success => write!(f, "Success"),
+			// Keyword::Failure => write!(f, "Failure"),
+			// Keyword::Running => write!(f, "Running"),
 		}
 	}
 }
@@ -96,6 +107,8 @@ impl Display for OpSym {
 			OpSym::Lte => write!(f, "<="),
 			OpSym::Gte => write!(f, ">="),
 			OpSym::Not => write!(f, "!"),
+			OpSym::NullC => write!(f, "??"),
+			OpSym::Dbg => write!(f, "$"),
 		}
 	}
 }
@@ -109,6 +122,7 @@ impl Display for FlowSym {
 			FlowSym::CloseBrace => write!(f, "}}"),
 			FlowSym::OpenSquare => write!(f, "["),
 			FlowSym::CloseSquare => write!(f, "]"),
+			FlowSym::Colon => write!(f, ":"),
 			FlowSym::Comma => write!(f, ","),
 			FlowSym::Dot => write!(f, "."),
 			FlowSym::LineEnd => write!(f, ";"),
@@ -116,17 +130,67 @@ impl Display for FlowSym {
 	}
 }
 
-//TODO! These should not be here...#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+use self_rust_tokenize::SelfRustTokenize;
+use vecmap::VecMap;
+
+//TODO! These should not be here..
 use crate::htn_vm::Num;
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, self_rust_tokenize::SelfRustTokenize)]
 pub enum VmValue {
 	Null,
 	Bool(bool),
 	Number(Num),
 	String(String),
-	List(Vec<VmValue>),
-	Map(vecmap::VecMap<String, VmValue>),
+}
+
+#[derive(Clone, Debug)]
+pub struct VecMapWrapper<K, V>(VecMap<K, V>);
+impl<K, V> std::ops::Deref for VecMapWrapper<K, V> {
+	type Target = vecmap::VecMap<K, V>;
+	fn deref(&self) -> &Self::Target { &self.0 }
+}
+impl<K, V> std::ops::DerefMut for VecMapWrapper<K, V> {
+	fn deref_mut(&mut self) -> &mut Self::Target { &mut self.0 }
+}
+impl<K, V> AsRef<vecmap::VecMap<K, V>> for VecMapWrapper<K, V> {
+	fn as_ref(&self) -> &vecmap::VecMap<K, V> { &self.0 }
+}
+impl<K, V> AsMut<vecmap::VecMap<K, V>> for VecMapWrapper<K, V> {
+	fn as_mut(&mut self) -> &mut vecmap::VecMap<K, V> { &mut self.0 }
+}
+impl<K, V> From<vecmap::VecMap<K, V>> for VecMapWrapper<K, V> {
+	fn from(value: vecmap::VecMap<K, V>) -> Self { Self(value) }
+}
+impl<K, V> From<VecMapWrapper<K, V>> for vecmap::VecMap<K, V> {
+	fn from(value: VecMapWrapper<K, V>) -> Self { value.0 }
+}
+impl<K: Eq, V> serde::Serialize for VecMapWrapper<K, V> where K: serde::Serialize, V: serde::Serialize {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
+		self.0.serialize(serializer)
+	}
+}
+impl<'de, K: Eq, V> serde::Deserialize<'de> for VecMapWrapper<K, V> where K: serde::Deserialize<'de>, V: serde::Deserialize<'de> {
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: serde::Deserializer<'de> {
+		Ok(Self(serde::Deserialize::deserialize(deserializer)?))
+	}
+}
+impl<K: SelfRustTokenize, V: SelfRustTokenize> ::self_rust_tokenize::SelfRustTokenize for VecMapWrapper<K, V> {
+    fn append_to_token_stream(
+        &self,
+        token_stream: &mut ::self_rust_tokenize::helpers::TokenStream,
+    ) {
+		let mut inner_token_stream = ::self_rust_tokenize::helpers::TokenStream::default();
+		for (idx, (key, value)) in self.iter().enumerate() {
+			key.append_to_token_stream(&mut inner_token_stream);
+			self_rust_tokenize::helpers::TokenStreamExt::append(&mut inner_token_stream, ::self_rust_tokenize::helpers::proc_macro2::Punct::new(':', ::self_rust_tokenize::helpers::proc_macro2::Spacing::Joint));
+			value.append_to_token_stream(&mut inner_token_stream);
+			if idx != self.len() - 1 {
+				self_rust_tokenize::helpers::TokenStreamExt::append(&mut inner_token_stream, self_rust_tokenize::helpers::proc_macro2::Punct::new(',', ::self_rust_tokenize::helpers::proc_macro2::Spacing::Alone));
+			}
+		}
+		self_rust_tokenize::helpers::TokenStreamExt::append(token_stream, ::self_rust_tokenize::helpers::proc_macro2::Group::new(::self_rust_tokenize::helpers::proc_macro2::Delimiter::Brace, inner_token_stream));
+    }
 }
 
 impl std::fmt::Display for VmValue {
@@ -139,26 +203,6 @@ impl std::fmt::Display for VmValue {
 				Num::Int(value) => write!(f, "{value}"),
 			},
 			VmValue::String(value) => write!(f, "{value}"),
-			VmValue::List(value) => {
-				write!(f, "[")?;
-				for (i, value) in value.iter().enumerate() {
-					if i > 0 {
-						write!(f, ", ")?;
-					}
-					write!(f, "{value}")?;
-				}
-				write!(f, "]")
-			}
-			VmValue::Map(value) => {
-				write!(f, "{{")?;
-				for (i, (key, value)) in value.iter().enumerate() {
-					if i > 0 {
-						write!(f, ", ")?;
-					}
-					write!(f, "{key}: {value}")?;
-				}
-				write!(f, "}}")
-			}
 		}
 	}
 }

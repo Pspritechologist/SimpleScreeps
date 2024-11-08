@@ -1,4 +1,5 @@
 use chumsky::prelude::*;
+use text::whitespace;
 use super::tokens::{HtnToken::{self, *}, FlowSym::*, Keyword::*, OpSym::*};
 
 pub type Error<'src, T> = Rich<'src, T, Span>;
@@ -13,7 +14,11 @@ pub fn htn_lexer<'src>() -> impl Parser<'src, &'src str, Vec<HtnToken<'src>>, Ex
 		just("Null").to(Null),
 		just("if").to(If),
 		just("else").to(Else),
-	)).map(Keyword);
+		// just("Success").or(just("S")).to(Success),
+		// just("Failure").or(just("F")).to(Failure),
+		// just("Running").or(just("R")).to(Running),
+		just("exit").to(Exit),
+	)).map(Keyword).boxed();
 	
 	let operator = choice(( // Operators.
 		just('+').to(Add),
@@ -30,7 +35,9 @@ pub fn htn_lexer<'src>() -> impl Parser<'src, &'src str, Vec<HtnToken<'src>>, Ex
 		just("<=").to(Lte),
 		just(">=").to(Gte),
 		just('!').to(Not),
-	)).map(OpSym);
+		just("??").to(NullC),
+		just('$').to(Dbg),
+	)).map(OpSym).boxed();
 	
 	let flow_sym = choice(( // Flow symbols.
 		just('(').to(OpenParen),
@@ -42,7 +49,7 @@ pub fn htn_lexer<'src>() -> impl Parser<'src, &'src str, Vec<HtnToken<'src>>, Ex
 		just(',').to(Comma),
 		just('.').to(Dot),
 		just(';').to(LineEnd),
-	)).map(FlowSym);
+	)).map(FlowSym).boxed();
 	
 	let ident = text::ident().map(Ident); // Identifiers.
 
@@ -78,13 +85,14 @@ pub fn htn_lexer<'src>() -> impl Parser<'src, &'src str, Vec<HtnToken<'src>>, Ex
 		str_es,
 		operator,
 		ident,
-	));
+	)).boxed();
 
 	let comment = just('#').then(none_of('\n').repeated().then(just('\n').ignored().or(end().ignored())));
 
 	token
 		.padded()
 		.padded_by(comment.repeated())
+		.then_ignore(whitespace().or_not())
 		.recover_with(skip_then_retry_until(any().ignored(), end()))
 		.repeated()
 		.collect()

@@ -1,11 +1,12 @@
 pub mod lexer;
 pub mod tokens;
+pub mod emitter;
 
 use super::htn_vm::{EndState, Num};
 use chumsky::input::ValueInput;
 use chumsky::{prelude::*, Parser};
 use lexer::{Extra, Span};
-use tokens::{HtnToken, VmValue};
+use tokens::{HtnToken, Keyword, VmValue};
 
 pub trait ParseIn<'src> = ValueInput<'src, Token = HtnToken<'src>, Span = Span>;
 pub trait HtnParser<'src, I: ParseIn<'src>, O> = Parser<'src, I, O, Extra<'src, I::Token>> + Clone;
@@ -13,7 +14,6 @@ pub trait HtnParser<'src, I: ParseIn<'src>, O> = Parser<'src, I, O, Extra<'src, 
 #[derive(Debug, Clone)]
 pub enum HtnInstr {
 	Assign(String, ParseValue),
-	CallTask(String),
 	If(ParseValue, Vec<HtnInstr>, Option<Vec<HtnInstr>>),
 	Exit(EndState),
 	Value(ParseValue),
@@ -42,6 +42,7 @@ pub enum BinaryOp {
 pub enum UnaryOp {
 	Not,
 	Neg,
+	Dbg,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -52,7 +53,9 @@ pub enum ParseValue {
 	Call(Box<ParseValue>, Vec<ParseValue>),
 	Access(Box<ParseValue>, String),
 	Expression(Box<ParseValue>, BinaryOp, Box<ParseValue>),
+	NullCoalesce(Box<ParseValue>, Box<ParseValue>),
 	Unary(UnaryOp, Box<ParseValue>),
+	Object(vecmap::VecMap<String, ParseValue>),
 }
 
 impl std::fmt::Display for ParseValue {
@@ -64,7 +67,9 @@ impl std::fmt::Display for ParseValue {
 			ParseValue::Call(func, args) => write!(f, "{func}({})", args.iter().map(|arg| format!("{}", arg)).collect::<Vec<_>>().join(", ")),
 			ParseValue::Access(lhs, rhs) => write!(f, "{lhs}.{rhs}"),
 			ParseValue::Expression(lhs, op, rhs) => write!(f, "{{{lhs} {op:?} {rhs}}}"),
+			ParseValue::NullCoalesce(lhs, rhs) => write!(f, "{lhs} ?? {rhs}"),
 			ParseValue::Unary(op, value) => write!(f, "{{{op:?} {value}}}"),
+			ParseValue::Object(fields) => write!(f, "{{{fields:?}}}")
         }
     }
 }
@@ -79,12 +84,15 @@ fn expr<'src, I: ParseIn<'src>>(lhs: &impl HtnParser<'src, I, ParseValue>, rhs: 
 pub fn htn_parser<'src, I: ParseIn<'src>>() -> impl HtnParser<'src, I, Vec<HtnInstr>> {
 	use tokens::{HtnToken::*, FlowSym::*, Keyword::*, OpSym::*};
 
+	let str_lit = select! {
+		EscStr(s) => VmValue::String(unescape::unescape(s).unwrap()),
+		RawStr(s) => VmValue::String(s.to_string()),
+	};
+
 	let literal = select! {
 		Keyword(True) => VmValue::Bool(true),
 		Keyword(False) => VmValue::Bool(false),
 		Keyword(Null) => VmValue::Null,
-		EscStr(s) => VmValue::String(unescape::unescape(s).unwrap()),
-		RawStr(s) => VmValue::String(s.to_string()),
 		Int(i) => VmValue::Number(Num::Int(i)),
 		Float(f) => VmValue::Number(Num::Float(f)),
 	};
@@ -92,26 +100,66 @@ pub fn htn_parser<'src, I: ParseIn<'src>>() -> impl HtnParser<'src, I, Vec<HtnIn
 	let ident = select! { Ident(i) => i.to_string() };
 
 	let value = recursive(|value| {
-		let lit = literal.map(ParseValue::Literal);
+		let lit = literal.or(str_lit).map(ParseValue::Literal);
 		let variable = ident.map(ParseValue::Variable);
 		let wrapped = value.clone().delimited_by(just(FlowSym(OpenParen)), just(FlowSym(CloseParen)));
+		// let object = str_lit.clone()
+		// 	.then(just(FlowSym(Colon)).ignore_then(value.clone()))
+		// 	.separated_by(just(FlowSym(Comma)))
+		// 	.allow_trailing()
+		// 	.collect()
+		// 	.delimited_by(just(FlowSym(OpenBrace)), just(FlowSym(CloseBrace)))
+		// 	.map(|fields: Vec<_>| {
+		// 		let mut map = vecmap::VecMap::new();
+		// 		for (key, value) in fields {
+		// 			if let VmValue::String(key) = key {
+		// 				map.insert(key, value);
+		// 			}
+		// 		}
+		// 		ParseValue::Object(map)
+		// 	})
+		// 	.boxed();
+
+		let object = just(FlowSym(OpenBrace))
+			.ignore_then(str_lit.clone()
+				.then_ignore(just(FlowSym(Colon)))
+				.then(value.clone())
+				.separated_by(just(FlowSym(Comma)))
+				.allow_trailing()
+				.collect())
+			.then_ignore(just(FlowSym(CloseBrace)))
+			.map(|fields: Vec<_>| {
+				let mut map = vecmap::VecMap::new();
+				for (key, value) in fields {
+					if let VmValue::String(key) = key {
+						map.insert(key, value);
+					}
+				}
+				ParseValue::Object(map)
+			})
+			.boxed();
 
 		let atom = choice((
+			object,
 			lit,
 			variable,
 			wrapped,
-		));
+		)).boxed();
 
-		let tu = select! { OpSym(Not) => UnaryOp::Not, OpSym(Sub) => UnaryOp::Neg }
+		let tu = select! {
+			OpSym(Not) => UnaryOp::Not,
+			OpSym(Sub) => UnaryOp::Neg,
+			OpSym(Dbg) => UnaryOp::Dbg,
+		}
 			.then(atom.clone())
 			.map(|(op, value)| ParseValue::Unary(op, Box::new(value)))
-			.or(atom.clone())
-			.boxed();
+			.or(atom.clone());
 
 		enum Suffix {
 			Index(ParseValue),
 			Call(Vec<ParseValue>),
 			Access(String),
+			NullOr(ParseValue),
 		}
 
 		let suffix = choice((
@@ -127,7 +175,10 @@ pub fn htn_parser<'src, I: ParseIn<'src>>() -> impl HtnParser<'src, I, Vec<HtnIn
 			just(FlowSym(Dot))
 				.ignore_then(ident)
 				.map(Suffix::Access),
-		));
+			just(OpSym(NullC))
+				.ignore_then(value.clone())
+				.map(Suffix::NullOr),
+		)).boxed();
 
 		let ts = tu.clone()
 			.foldl(suffix.repeated(), |expr, suffix| {
@@ -135,6 +186,7 @@ pub fn htn_parser<'src, I: ParseIn<'src>>() -> impl HtnParser<'src, I, Vec<HtnIn
 					Suffix::Index(index) => ParseValue::Index(Box::new(expr), Box::new(index)),
 					Suffix::Call(args) => ParseValue::Call(Box::new(expr), args),
 					Suffix::Access(field) => ParseValue::Access(Box::new(expr), field),
+					Suffix::NullOr(value) => ParseValue::NullCoalesce(Box::new(expr), Box::new(value)),
 				}
 			})
 			.or(tu.clone())
@@ -179,14 +231,42 @@ pub fn htn_parser<'src, I: ParseIn<'src>>() -> impl HtnParser<'src, I, Vec<HtnIn
 		let t5 = recursive(|t5| expr(&t4, &t5, op_t5).or(t4.clone()));
 
 		t5
-	});
+	}).boxed();
 
 	let assignment = ident
 		.then_ignore(just(OpSym(Eq)))
 		.then(value.clone())
 		.map(|(name, value)| HtnInstr::Assign(name, value));
 
-	
+	let exit = just(Keyword(Exit))
+		.ignore_then(select! {
+			Ident("Success") | Ident("S") => EndState::Success,
+			Ident("Failure") | Ident("F") => EndState::Failure,
+			Ident("Continue") | Ident("C") => EndState::Running,
+		})
+		.map(HtnInstr::Exit);
 
-	value.map(HtnInstr::Value).separated_by(just(FlowSym(LineEnd))).allow_trailing().collect()
+	let top_level_instr = recursive(|top_level_instr| {
+		let block = top_level_instr.clone()
+			.separated_by(just(FlowSym(LineEnd)))
+			.allow_trailing()
+			.collect()
+			.delimited_by(just(FlowSym(OpenBrace)), just(FlowSym(CloseBrace)))
+			.boxed();
+
+		let if_statement = just(Keyword(If))
+			.ignore_then(value.clone())
+			.then(block.clone())
+			.then(just(Keyword(Else)).ignore_then(block.clone()).or_not())
+			.map(|((cond, if_block), else_block)| HtnInstr::If(cond, if_block, else_block));
+
+		choice((
+			exit,
+			assignment,
+			value.map(HtnInstr::Value),
+			if_statement,
+		))
+	});
+
+	top_level_instr.separated_by(just(FlowSym(LineEnd))).allow_trailing().collect()
 }

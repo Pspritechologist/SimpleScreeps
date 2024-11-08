@@ -13,3 +13,5 @@ proc-macro = true
 proc-macro2 = "*"
 quote = "*"
 syn = { version = "*", features = [ "full" ] }
+# htn = { path = "../htn" }
+self-rust-tokenize = "*"

@@ -10,7 +10,7 @@ crate-type = [ "cdylib", "rlib" ]
 default-members = [ "../screepies" ]
 members = [
 	"../screepies",
-	"htn",
+	# "htn",
 	"macros",
 ]
 
@@ -28,10 +28,11 @@ fastrand = "*"
 serde = { version = "*", features = [ "derive" ] }
 # serde-wasm-bindgen = "*"
 bitcode = { version = "*", features = [ "serde" ] }
+serde_json = "*"
 base64 = "*"
 vecmap-rs = { version = "*", features = [ "serde" ] }
 
-htn = { path = "htn" }
+# htn = { path = "htn" }
 
 [build-dependencies]
 # reqwest = { version = "*", features = [ "json", "blocking" ] }

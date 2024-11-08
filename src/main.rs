@@ -1,4 +1,4 @@
-use htn::{parsing::{htn_parser, lexer::htn_lexer, HtnInstr}, Parser};
+use htn::prelude::*;
 
 fn main() {
 	setup_logging(log::LevelFilter::Trace);
@@ -18,7 +18,7 @@ fn main() {
 
             let result = htn_parser().parse(&**tokens);
             match result.output() {
-                Some(instr) => {
+                Some(instrs) => {
                     if result.has_errors() {
                         println!("Parsing Errors:");
                         for err in result.errors() {
@@ -26,17 +26,10 @@ fn main() {
                         }
                         println!();
                     }
-
-                    let values = instr.iter().map(|instr| {
-                        match instr {
-                            HtnInstr::Value(value) => value,
-                            _ => unreachable!(),
-                        }
-                    });
                     
                     println!("Instructions:");
-                    for value in values {
-                        println!("\t{value}");
+                    for instr in instrs.iter() {
+                        println!("\t{instr:?}\n");
                     }
                 },
                 None => {

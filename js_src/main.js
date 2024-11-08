@@ -32,6 +32,10 @@ let running = false;
 function loaded_loop() {
     // need to freshly override the fake console object each tick
     console.error = console_error;
+
+    delete global.Memory;
+    global.Memory = { };
+
     if (running) {
         // we've had an error on the last tick; skip execution during the current tick, asking to
         // have our IVM immediately destroyed so we get a fresh environment next tick;

@@ -8,7 +8,7 @@
 			"type": "node-terminal",
 			"request": "launch",
 			"name": "Upload code",
-			"command": "npm run deploy -- --server simplescreeps; exit",
+			"command": "npm run deploy -- --server simplescreeps && exit",
 			// Don't open the terminal
 			"internalConsoleOptions": "neverOpen",
 		},

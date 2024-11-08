@@ -1,12 +1,14 @@
 use std::str::FromStr;
 
-use js_sys::Object;
+use js_sys::{JsString, Object};
 use vecmap::VecMap;
 use wasm_bindgen::{JsCast, JsValue};
 
+use crate::parsing::tokens::VecMapWrapper;
+
 use super::parsing::tokens::VmValue;
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, self_rust_tokenize::SelfRustTokenize)]
 pub enum Num {
 	Float(f32),
 	Int(i32),
@@ -22,42 +24,31 @@ impl From<&VmValue> for Object {
 				Num::Int(i) => js_sys::Number::from(*i)
 			}.into(),
 			VmValue::String(value) => js_sys::JsString::from_str(value).unwrap().into(),
-			VmValue::List(value) => {
-				let array = js_sys::Array::new_with_length(value.len() as u32);
-				for (i, value) in value.iter().enumerate() {
-					array.set(i as u32, Object::from(value).into());
-				}
-				array.into()
-			}
-			VmValue::Map(value) => {
-				let object = Object::new();
-				for (key, value) in value.into_iter() {
-					js_sys::Reflect::set(&object, &js_sys::JsString::from_str(key).unwrap(), &Object::from(value).into()).unwrap();
-				}
-				object
-			}
 		}
 	}
 }
 
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, self_rust_tokenize::SelfRustTokenize)]
 pub enum EndState {
 	Success,
 	Failure,
 	Running,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, self_rust_tokenize::SelfRustTokenize)]
 pub enum Operation {
 	SetBlackBoard { key: String },
 	GetBlackBoard { key: String },
+	GetGlobal { key: String },
 	Push { value: VmValue },
+	DefineObj { fields: Vec<String> },
 	Pop { count: u32 },
 	IsNull,
 	Has { key: String },
-	CallMethod { func: String, args: u32 },
-	If { skip: usize },
-	Skip { skip: usize },
+	Access { key: String },
+	Call { args: u32, method: bool },
+	SkipIf { skip: u32, invert: bool },
+	Skip { skip: u32 },
 	EndTick(EndState),
 	Add,
 	Sub,
@@ -66,13 +57,14 @@ pub enum Operation {
 	Mod,
 	And,
 	Or,
-	Eq,
+	Eq,	
 	Neq,
 	Lt,
 	Gt,
 	Lte,
 	Gte,
 	Not,
+	Dbg,
 }
 
 #[derive(Debug)]
@@ -84,13 +76,20 @@ pub enum Error {
 	OutOfOps,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct HtnVm {
-	#[serde(with = "blackboard_serde")]
-	blackboard: VecMap<String, Object>,
-	ops: Vec<Operation>,
-	index: usize,
+	pub blackboard: VecMap<String, ObjectWrapper>,
+	// #[serde(skip)]
+	pub ops: Vec<Operation>,
+	#[serde(skip)]
+	pub index: usize,
 }
+
+// pub enum VmType {
+// 	Object(Object),
+// 	Num(Num),
+// 	Boolean(bool),
+// }
 
 #[derive(Debug, Clone, Default)]
 struct Stack(Vec<Object>);
@@ -126,54 +125,130 @@ impl Stack {
 	}
 }
 
-mod blackboard_serde {
-	use serde::{ser::SerializeMap, Deserialize, Deserializer, Serializer};
-	use vecmap::VecMap;
-
-	pub fn serialize<S>(value: &VecMap<String, js_sys::Object>, serializer: S) -> Result<S::Ok, S::Error>
-	where S: Serializer,
-	{
-		let mut map = serializer.serialize_map(Some(value.len()))?;
-		for (key, value) in value.iter() {
-			match js_sys::JSON::stringify(value) {
-				Ok(value) => map.serialize_entry(key, &value.as_string().unwrap())?,
-				_ => map.serialize_entry(key, &())?,
-			}
-		}
-
-		map.end()
+#[derive(Debug, Clone)]
+pub struct ObjectWrapper(Object);
+impl std::ops::Deref for ObjectWrapper {
+	type Target = Object;
+	fn deref(&self) -> &Self::Target { &self.0 }
+}
+impl std::ops::DerefMut for ObjectWrapper {
+	fn deref_mut(&mut self) -> &mut Self::Target { &mut self.0 }
+}
+impl AsRef<Object> for ObjectWrapper {
+	fn as_ref(&self) -> &Object { &self.0 }
+}
+impl AsMut<Object> for ObjectWrapper {
+	fn as_mut(&mut self) -> &mut Object { &mut self.0 }
+}
+impl AsRef<JsValue> for ObjectWrapper {
+	fn as_ref(&self) -> &JsValue { &self.0 }
+}
+impl From<Object> for ObjectWrapper {
+	fn from(value: Object) -> Self { Self(value) }
+}
+impl From<ObjectWrapper> for Object {
+	fn from(value: ObjectWrapper) -> Self { value.0 }
+}
+impl From<JsValue> for ObjectWrapper {
+	fn from(value: JsValue) -> Self { Object::from(value).into() }
+}
+impl From<ObjectWrapper> for JsValue {
+	fn from(value: ObjectWrapper) -> Self { value.0.into() }
+}
+impl wasm_bindgen::JsCast for ObjectWrapper {
+	fn instanceof(val: &JsValue) -> bool {
+		Object::instanceof(val)
 	}
 
-	pub fn deserialize<'de, D>(deserializer: D) -> Result<VecMap<String, js_sys::Object>, D::Error>
-	where D: Deserializer<'de>,
-	{
-		let map: VecMap<String, String> = Deserialize::deserialize(deserializer)?;
-		let result = map.into_iter().map(|(key, value)| 
-			(key, js_sys::JSON::parse(&value).unwrap().into())
-		).collect();
-		
-		Ok(result)
+	fn unchecked_from_js(val: JsValue) -> Self {
+		Self(val.unchecked_into())
 	}
+
+	fn unchecked_from_js_ref(val: &JsValue) -> &Self {
+		unsafe { &*(val as *const JsValue as *const Self) }
+	}
+}
+impl serde::Serialize for ObjectWrapper {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
+		let json = match js_sys::JSON::stringify(&self.0) {
+			Ok(json) => json,
+			Err(err) => {
+				log::error!("Error serializing object: {:?}", err.as_string().unwrap_or_default());
+				// return Err(serde::ser::Error::custom(format!("Error serializing object: {:?}", err)))
+				JsString::from_str("null").unwrap()
+			},
+		};
+		// let Some(string) = json.as_string() else {
+		// 	log::error!("JSON value was not a string!");
+		// 	return Err(serde::ser::Error::custom("JSON value was not a string"));
+		// };
+		match json.as_string() {
+			Some(string) => string,
+			None => {
+				log::error!("Error serializing object");
+				String::from_str("null").unwrap()
+			},	
+		}.serialize(serializer)
+	}
+}
+impl<'de> serde::Deserialize<'de> for ObjectWrapper {
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: serde::Deserializer<'de> {
+		let json: String = serde::Deserialize::deserialize(deserializer)?;
+		// Ok(Self(match js_sys::JSON::parse(&json) {
+		// 	Ok(value) => value,
+		// 	Err(err) => {
+		// 		log::error!("Error deserializing object: {:?}", err.as_string().unwrap_or_default());
+		// 		return Err(serde::de::Error::custom(format!("Error deserializing object: {:?}", err)))
+		// 	},
+		// }.into()))
+		Ok(Self(match js_sys::JSON::parse(&json) {
+			Ok(value) => value,
+			Err(err) => {
+				log::error!("Error deserializing object: {:?}", err.as_string().unwrap_or_default());
+				Default::default()
+			},
+		}.into()))
+	}
+}
+impl ObjectWrapper {
+	fn new() -> Self { Self(Object::new()) }
 }
 
 impl HtnVm {
-	async fn execute(mut self) -> Result<EndState, Error> {
+	pub fn execute(&mut self) -> Result<EndState, Error> {
 		use Operation::*;
 
 		let mut stack = Stack::default();
 
+		log::trace!("Executing VM with op: {:?}", self.ops);
+
 		while self.index < self.ops.len() {
-			match &self.ops[self.index] {
+			let op = &self.ops[self.index];
+
+			log::trace!("Executing op: {:?}", op);
+
+			match op {
 				SetBlackBoard { key } => {
 					let value = stack.pop()?;
-					self.blackboard.insert(key.clone(), value);
+					self.blackboard.insert(key.clone(), value.into());
 				}
 				GetBlackBoard { key } => {
-					let value = self.blackboard.get::<str>(key.as_ref()).cloned().unwrap_or_else(Object::new);
-					stack.push(value.clone());
+					let value = self.blackboard.get::<str>(key.as_ref()).cloned().unwrap_or_else(ObjectWrapper::new);
+					stack.push(value.clone().into());
+				}
+				GetGlobal { key } => {
+					let value = js_sys::Reflect::get(&js_sys::global(), &js_sys::JsString::from_str(key).unwrap()).map_err(|_| Error::BadType)?;
+					stack.push(value.into());
 				}
 				Push { value } => {
 					stack.push(value.into());
+				}
+				DefineObj { fields } => {
+					let obj = js_sys::Object::new();
+					for key in fields {
+						js_sys::Reflect::set(&obj, &key.into(), &stack.pop()?.into()).map_err(|_| Error::BadType)?;
+					}
+					stack.push(obj);
 				}
 				Pop { count } => {
 					if *count > stack.len() as u32 {
@@ -183,7 +258,7 @@ impl HtnVm {
 					(0..*count).for_each(|_| { stack.pop(); } );
 				}
 				IsNull => {
-					let is_null = stack.peek()?.is_null();
+					let is_null = /* stack.peek()?.is_null() ||  */stack.peek()?.is_undefined();
 					stack.push(js_sys::Boolean::from(is_null).into())
 				}
 				Has { key } => {
@@ -191,47 +266,59 @@ impl HtnVm {
 					let result = js_sys::Reflect::has(value, &js_sys::JsString::from_str(key).unwrap()).map_err(|_| Error::BadType)?;
 					stack.push(js_sys::Boolean::from(result).into());
 				}
-				CallMethod { func, args } => {
+				Access { key } => {
+					let value = stack.pop()?;
+					let result = js_sys::Reflect::get(&value, &js_sys::JsString::from_str(key).unwrap()).map_err(|_| Error::BadType)?;
+					stack.push(result.into());
+				}
+				Call { args, method } => {
+					let (js_func, target) = if *method {
+						(stack.pop()?, stack.pop()?.into())
+					} else {
+						(stack.pop()?, JsValue::undefined())
+					};
+
 					let args = js_sys::Array::new_with_length(*args);
 					for _ in 0..args.length() {
 						args.push(&stack.pop()?.into());
 					}
 
-					let target = stack.pop()?;
-
-					let js_func = js_sys::Reflect::get(&target, &js_sys::JsString::from_str(func).unwrap()).map_err(|_| Error::FuncNotFound(func.clone()))?;
+					// let js_func = js_sys::Reflect::get(&target, &js_sys::JsString::from_str(func).unwrap()).map_err(|_| Error::FuncNotFound(func.clone()))?;
 					let js_func: js_sys::Function = js_func.dyn_into().map_err(|_| Error::BadType)?;
 
 					let result = js_sys::Reflect::apply(&js_func, &target, &args).map_err(Error::FuncCallFailed)?;
 					
 					stack.push(result.into());
 				}
-				If { skip } => {
+				SkipIf { skip, invert } => {
 					let value = js_sys::Boolean::from(stack.pop()?.is_truthy());
-					if value.as_bool().unwrap() {
-						self.index += skip;
+					if value.as_bool().unwrap() != *invert {
+						self.index += usize::try_from(*skip).unwrap(); // ! ??
 					}
 				}
 				Skip { skip } => {
-					self.index += skip;
+					self.index += usize::try_from(*skip).unwrap(); // ! ??
 				}
 				EndTick(state) => {
 					return Ok(*state);
 				}
-				Add => { let (a, b) = (stack.pop()?, stack.pop()?); stack.push((JsValue::from(a) + JsValue::from(b)).into()); }
-				Sub => { let (a, b) = (stack.pop()?, stack.pop()?); stack.push((JsValue::from(a) - JsValue::from(b)).into()); }
-				Mul => { let (a, b) = (stack.pop()?, stack.pop()?); stack.push((JsValue::from(a) * JsValue::from(b)).into()); }
-				Div => { let (a, b) = (stack.pop()?, stack.pop()?); stack.push((JsValue::from(a) / JsValue::from(b)).into()); }
-				Mod => { let (a, b) = (stack.pop()?, stack.pop()?); stack.push((JsValue::from(a) % JsValue::from(b)).into()); }
-				And => { let (a, b) = (stack.pop()?, stack.pop()?); stack.push((JsValue::from(a) & JsValue::from(b)).into()); }
-				Or => { let (a, b) = (stack.pop()?, stack.pop()?); stack.push((JsValue::from(a) | JsValue::from(b)).into()); }
-				Eq => { let (a, b) = (stack.pop()?, stack.pop()?); stack.push(JsValue::from_bool(JsValue::from(a) == JsValue::from(b)).into()); }
-				Neq => { let (a, b) = (stack.pop()?, stack.pop()?); stack.push(JsValue::from_bool(JsValue::from(a) != JsValue::from(b)).into()); }
-				Lt => { let (a, b) = (stack.pop()?, stack.pop()?); stack.push(JsValue::from_bool(JsValue::from(a).lt(&JsValue::from(b))).into()); }
-				Gt => { let (a, b) = (stack.pop()?, stack.pop()?); stack.push(JsValue::from_bool(JsValue::from(a).gt(&JsValue::from(b))).into()); }
-				Lte => { let (a, b) = (stack.pop()?, stack.pop()?); stack.push(JsValue::from_bool(JsValue::from(a).le(&JsValue::from(b))).into()); }
-				Gte => { let (a, b) = (stack.pop()?, stack.pop()?); stack.push(JsValue::from_bool(JsValue::from(a).ge(&JsValue::from(b))).into()); }
+				Add => { let (b, a) = (stack.pop()?, stack.pop()?); stack.push((JsValue::from(a) + JsValue::from(b)).into()); }
+				Sub => { let (b, a) = (stack.pop()?, stack.pop()?); stack.push((JsValue::from(a) - JsValue::from(b)).into()); }
+				Mul => { let (b, a) = (stack.pop()?, stack.pop()?); stack.push((JsValue::from(a) * JsValue::from(b)).into()); }
+				Div => { let (b, a) = (stack.pop()?, stack.pop()?); stack.push((JsValue::from(a) / JsValue::from(b)).into()); }
+				Mod => { let (b, a) = (stack.pop()?, stack.pop()?); stack.push((JsValue::from(a) % JsValue::from(b)).into()); }
+				And => { let (b, a) = (stack.pop()?, stack.pop()?); stack.push((JsValue::from(a) & JsValue::from(b)).into()); }
+				Or => { let (b, a) = (stack.pop()?, stack.pop()?); stack.push((JsValue::from(a) | JsValue::from(b)).into()); }
+				Eq => { let (b, a) = (stack.pop()?, stack.pop()?); stack.push(JsValue::from_bool(JsValue::from(a) == JsValue::from(b)).into()); }
+				Neq => { let (b, a) = (stack.pop()?, stack.pop()?); stack.push(JsValue::from_bool(JsValue::from(a) != JsValue::from(b)).into()); }
+				Lt => { let (b, a) = (stack.pop()?, stack.pop()?); stack.push(JsValue::from_bool(JsValue::from(a).lt(&JsValue::from(b))).into()); }
+				Gt => { let (b, a) = (stack.pop()?, stack.pop()?); stack.push(JsValue::from_bool(JsValue::from(a).gt(&JsValue::from(b))).into()); }
+				Lte => { let (b, a) = (stack.pop()?, stack.pop()?); stack.push(JsValue::from_bool(JsValue::from(a).le(&JsValue::from(b))).into()); }
+				Gte => { let (b, a) = (stack.pop()?, stack.pop()?); stack.push(JsValue::from_bool(JsValue::from(a).ge(&JsValue::from(b))).into()); }
 				Not => { let t = stack.pop()?; stack.push(JsValue::from_bool(!JsValue::from(t).is_truthy()).into()); }
+				Dbg => {
+					log::debug!("DBG: {}", js_sys::JSON::stringify(stack.peek()?).unwrap_or_else(|_| "INVALID_JSON".to_string().into()))
+				}
 			}
 
 			self.index += 1;

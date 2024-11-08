@@ -51,10 +51,15 @@ pub fn get_new_creep_name(used: &[String]) -> String {
 			if used.contains(name) {
 				continue;
 			} else {
-				return name.clone();
+				return name.clone(); // ! This is a potential source of infinite looping... Let's hope we don't run out.
 			}
 		}
 	})
+}
+
+pub fn generate_name() -> String {
+	let used: Vec<_> = screeps::game::creeps().keys().collect();
+	get_new_creep_name(&used)
 }
 
 // #[macro_export]

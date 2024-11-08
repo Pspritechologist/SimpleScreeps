@@ -1,6 +1,46 @@
-use proc_macro::TokenStream;
-use quote::{quote, TokenStreamExt};
-use syn::{parse::Parse, parse_macro_input, Fields, Ident, ItemEnum, LitInt};
+// use std::env::current_dir;
+
+// use proc_macro::TokenStream;
+// use quote::quote;
+// use self_rust_tokenize::SelfRustTokenize;
+// use syn::{parse_macro_input, LitStr};
+// use htn::prelude::*;
+
+// #[proc_macro]
+// pub fn embed_htn(input: TokenStream) -> TokenStream {
+// 	let src = parse_macro_input!(input as LitStr).value();
+
+// 	// let src = std::fs::read_to_string(current_dir().unwrap().join(src)).unwrap();
+
+// 	let ir = htn::parsing::lexer::htn_lexer().parse(&src);
+// 	for err in ir.errors() {
+// 		println!("{}", err);
+// 	}
+// 	let Some(ir) = ir.output() else {
+// 		panic!("Failed to lex HTN source due to errors:\n{}", ir.errors().map(|e| format!("{e}\n")).collect::<String>());
+// 	};
+// 	let obj = htn::parsing::htn_parser().parse(&**ir);
+// 	for err in obj.errors() {
+// 		println!("{}", err);
+// 	}
+// 	let Some(obj): Option<Vec<_>> = obj.output().cloned() else {
+// 		panic!("Failed to parse HTN source due to errors:\n{}", obj.errors().map(|e| format!("{e}\n")).collect::<String>());
+// 	};
+// 	let bytecode = htn::parsing::emitter::emit(obj);
+// 	let tokens = bytecode.into_iter().map(|op| op.to_tokens());
+
+// 	// let bytecode_tokens
+
+// 	let output = quote! {
+// 		{
+// 			use htn::prelude::*;
+// 			use embed_requirements::*;
+// 			&[#(#tokens),*]
+// 		}
+// 	};
+
+// 	output.into()
+// }
 
 // #[proc_macro_attribute]
 // pub fn enum_dispatched(_: TokenStream, input: TokenStream) -> TokenStream {
