@@ -1,5 +1,6 @@
 pub mod prelude {
-    use screeps::{Creep, ObjectId, Room, RoomObject, Structure, StructureController, StructureSpawn};
+	pub use screeps::prelude::*;
+    pub use screeps::{game, Creep, ObjectId, Room, RoomObject, Structure, StructureController, StructureSpawn};
 
 	pub type CreepId = ObjectId<Creep>;
 	pub type RoomId = ObjectId<Room>;

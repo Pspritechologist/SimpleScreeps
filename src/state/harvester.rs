@@ -1,8 +1,53 @@
-use super::*;
-use crate::dbg;
+use super::{*, general_states::*};
+use screeps::{Creep, ErrorCode, ObjectId, ResourceType, Source };
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct HarvesterStateGraph {
+pub struct StateHarvesting {
+	source: ObjectId<Source>,
+}
+
+impl StateHarvesting {
+	pub fn new(source: ObjectId<Source>) -> Self {
+		Self { source }
+	}
+}
+
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+pub enum HarvestReturn {
+	Filled,
+	RanOut,
+}
+
+impl State for StateHarvesting {
+	type Error = GenericStateError;
+	type Return = HarvestReturn;
+
+	fn run(&mut self, creep: &Creep, _data: &mut CreepData) -> StateResult<Self::Return, Self::Error> {
+		if creep.store().get_free_capacity(None) == 0 {
+			return Finished(HarvestReturn::Filled);
+		}
+
+		let Some(source) = self.source.resolve() else {
+			return Failed(GenericStateError::TargetNotReal);
+		};
+
+		if let Err(e) = creep.harvest(&source) {
+			match e {
+				ErrorCode::NotInRange => return Failed(GenericStateError::OutOfRange),
+				ErrorCode::NoBodypart => return Failed(GenericStateError::NoParts),
+				ErrorCode::NotEnough => return Finished(HarvestReturn::RanOut),
+				_ => return Failed(GenericStateError::Unknown),
+			}
+		}
+
+		Working
+	}
+}
+
+
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct StateHarvesterJob {
 	pub job: RoomObjectId,
 
 	current_state: PotentialState,
@@ -12,7 +57,7 @@ pub struct HarvesterStateGraph {
 	moving_to_source: bool,
 }
 
-impl HarvesterStateGraph {
+impl StateHarvesterJob {
 	pub fn new(creep: &Creep, job: RoomObjectId, target: StructureId, source: ObjectId<Source>) -> Self {
 		Self {
 			recurring: false,
@@ -43,7 +88,7 @@ enum PotentialState {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum HarvesterStateGraphError {
+pub enum StateHarvesterJobError {
 	HarvestingError(<StateHarvesting as State>::Error),
 	TransferringError(<StateTransfer as State>::Error),
 	MovingError(<StateMove as State>::Error),
@@ -51,8 +96,8 @@ pub enum HarvesterStateGraphError {
 	SourceNotReal,
 }
 
-impl State for HarvesterStateGraph {
-	type Error = HarvesterStateGraphError;
+impl State for StateHarvesterJob {
+	type Error = StateHarvesterJobError;
 	type Return = ();
 	fn run(&mut self, creep: &Creep, data: &mut CreepData) -> StateResult<Self::Return, Self::Error> {
 		match self.current_state {
@@ -61,12 +106,12 @@ impl State for HarvesterStateGraph {
 					Working => Working,
 					Finished(_) => {
 						let Some(target) = self.target.resolve() else {
-							return Failed(HarvesterStateGraphError::TargetNotReal);
+							return Failed(StateHarvesterJobError::TargetNotReal);
 						};
 						(self.moving_to_source, self.current_state) = (false, PotentialState::Moving(StateMove::new_from_ends_close(creep.pos(), target.pos())));
 						self.run(creep, data)
 					}
-					Failed(e) => Failed(HarvesterStateGraphError::HarvestingError(e)),
+					Failed(e) => Failed(StateHarvesterJobError::HarvestingError(e)),
 				}
 			}
 			PotentialState::Transferring(ref mut state) => {
@@ -74,7 +119,7 @@ impl State for HarvesterStateGraph {
 					Working => Working,
 					Finished(_) => {
 						let Some(source) = self.source.resolve() else {
-							return Failed(HarvesterStateGraphError::SourceNotReal);
+							return Failed(StateHarvesterJobError::SourceNotReal);
 						};
 						
 						if self.recurring {
@@ -84,7 +129,7 @@ impl State for HarvesterStateGraph {
 							Finished(())
 						}
 					}
-					Failed(e) => Failed(dbg!(HarvesterStateGraphError::TransferringError(e))),
+					Failed(e) => Failed(StateHarvesterJobError::TransferringError(e)),
 				}
 			}
 			PotentialState::Moving(ref mut state) => {
@@ -100,7 +145,7 @@ impl State for HarvesterStateGraph {
 						// We run again because a completed move state means we've already arrived.
 						self.run(creep, data)
 					}
-					Failed(e) => Failed(HarvesterStateGraphError::MovingError(e)),
+					Failed(e) => Failed(StateHarvesterJobError::MovingError(e)),
 				}
 			}
 		}

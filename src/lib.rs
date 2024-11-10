@@ -20,17 +20,17 @@ static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum JobEnum {
-	Harvester(state::harvester_graph::HarvesterStateGraph),
-	Upgrader(state::upgrader_graph::UpgraderStateGraph),
+	Harvester(state::harvester::StateHarvesterJob),
+	Upgrader(state::upgrader::StateUpgraderJob),
 	Idle(state::StateIdle),
 }
-impl From<state::harvester_graph::HarvesterStateGraph> for JobEnum {
-	fn from(job: state::harvester_graph::HarvesterStateGraph) -> Self {
+impl From<state::harvester::StateHarvesterJob> for JobEnum {
+	fn from(job: state::harvester::StateHarvesterJob) -> Self {
 		JobEnum::Harvester(job)
 	}
 }
-impl From<state::upgrader_graph::UpgraderStateGraph> for JobEnum {
-	fn from(job: state::upgrader_graph::UpgraderStateGraph) -> Self {
+impl From<state::upgrader::StateUpgraderJob> for JobEnum {
+	fn from(job: state::upgrader::StateUpgraderJob) -> Self {
 		JobEnum::Upgrader(job)
 	}
 }
@@ -192,8 +192,8 @@ pub fn game_loop() {
 
 			// creep_data.current_task = Some(state::harvester_graph::HarvesterStateGraph::new(&creep, job.id.into_type(), AsRef::<Structure>::as_ref(&spawn).id(), job.id.into_type()).into());
 			creep_data.current_task = Some(match job.job {
-				JobFlag::Harvest => state::harvester_graph::HarvesterStateGraph::new(&creep, job.id.into_type(), AsRef::<Structure>::as_ref(&spawn).id(), job.id.into_type()).into(),
-				JobFlag::Upgrade => state::upgrader_graph::UpgraderStateGraph::new(&creep, job.id.into_type(), job.id.into_type(), AsRef::<Structure>::as_ref(&spawn).id()).into(),
+				JobFlag::Harvest => state::harvester::StateHarvesterJob::new(&creep, job.id.into_type(), AsRef::<Structure>::as_ref(&spawn).id(), job.id.into_type()).into(),
+				JobFlag::Upgrade => state::upgrader::StateUpgraderJob::new(&creep, job.id.into_type(), job.id.into_type(), AsRef::<Structure>::as_ref(&spawn).id()).into(),
 			});
 
 			log::info!("Creep {} assigned to job {:?}", creep.name(), job.job);
@@ -213,13 +213,9 @@ pub fn game_loop() {
 		log::trace!("Room {} used {} CPU", room.name(), screeps::game::cpu::get_used() - room_cpu);
 	}
 
+	let cpu = screeps::game::cpu::get_used();
 	memory::set_memory(&global_memory);
-
-	screeps::raw_memory::set_active_segments(&[0]);
-	screeps::raw_memory::segments().set(0, "".to_string());
-	// screeps::raw_memory::segments().keys().for_each(|key| {
-	// 	screeps::raw_memory::segments().set(key, );
-	// });
+	log::trace!("Spent {} CPU on memory save", screeps::game::cpu::get_used() - cpu);
 
 	log::debug!("CPU used during tick: {}", screeps::game::cpu::get_used() - total_cpu);
 }

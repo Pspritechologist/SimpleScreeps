@@ -1,8 +1,8 @@
-use super::*;
-use crate::dbg;
+use super::{*, general_states::*};
+use screeps::{ErrorCode, ResourceType};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct UpgraderStateGraph {
+pub struct StateUpgraderJob {
 	pub job: RoomObjectId,
 
 	current_state: PotentialState,
@@ -12,7 +12,7 @@ pub struct UpgraderStateGraph {
 	moving_to_container: bool,
 }
 
-impl UpgraderStateGraph {
+impl StateUpgraderJob {
 	pub fn new(creep: &Creep, job: RoomObjectId, target: ControllerId, container: StructureId) -> Self {
 		Self {
 			recurring: false,
@@ -43,7 +43,7 @@ enum PotentialState {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum UpgraderStateGraphError {
+pub enum StateUpgraderJobError {
 	WithdrawingError(<StateWithdraw as State>::Error),
 	MovingError(<StateMove as State>::Error),
 	TargetNotReal,
@@ -52,8 +52,8 @@ pub enum UpgraderStateGraphError {
 	Unknown,
 }
 
-impl State for UpgraderStateGraph {
-	type Error = UpgraderStateGraphError;
+impl State for StateUpgraderJob {
+	type Error = StateUpgraderJobError;
 	type Return = ();
 	fn run(&mut self, creep: &Creep, data: &mut CreepData) -> StateResult<Self::Return, Self::Error> {
 		match self.current_state {
@@ -62,17 +62,17 @@ impl State for UpgraderStateGraph {
 					Working => Working,
 					Finished(_) => {
 						let Some(target) = self.target.resolve() else {
-							return Failed(UpgraderStateGraphError::TargetNotReal);
+							return Failed(StateUpgraderJobError::TargetNotReal);
 						};
 						(self.moving_to_container, self.current_state) = (false, PotentialState::Moving(StateMove::new_from_ends(creep.pos(), target.pos(), 3)));
 						Working
 					}
-					Failed(e) => Failed(UpgraderStateGraphError::WithdrawingError(e)),
+					Failed(e) => Failed(StateUpgraderJobError::WithdrawingError(e)),
 				}
 			}
 			PotentialState::Upgrading => {
 				let Some(target) = self.target.resolve() else {
-					return Failed(UpgraderStateGraphError::TargetNotReal);
+					return Failed(StateUpgraderJobError::TargetNotReal);
 				};
 				match creep.upgrade_controller(&target) {
 					Ok(_) => Working,
@@ -87,7 +87,7 @@ impl State for UpgraderStateGraph {
 							ErrorCode::NotEnough => {
 								if self.recurring {
 									let Some(dest) = self.container.resolve() else {
-										return Failed(UpgraderStateGraphError::TargetNotReal);
+										return Failed(StateUpgraderJobError::TargetNotReal);
 									};
 									(self.moving_to_container, self.current_state) = (true, PotentialState::Moving(StateMove::new_from_ends_close(creep.pos(), dest.pos())));
 									self.run(creep, data)
@@ -95,9 +95,9 @@ impl State for UpgraderStateGraph {
 									Finished(())
 								}
 							}
-							ErrorCode::InvalidTarget => Failed(UpgraderStateGraphError::ControllerBlocked),
-							ErrorCode::NoBodypart => Failed(UpgraderStateGraphError::NoBodyPart),
-							_ => Failed(UpgraderStateGraphError::Unknown),
+							ErrorCode::InvalidTarget => Failed(StateUpgraderJobError::ControllerBlocked),
+							ErrorCode::NoBodypart => Failed(StateUpgraderJobError::NoBodyPart),
+							_ => Failed(StateUpgraderJobError::Unknown),
 						}
 					}
 				}
@@ -115,7 +115,7 @@ impl State for UpgraderStateGraph {
 						// We run again because a completed move state means we've already arrived.
 						self.run(creep, data)
 					}
-					Failed(e) => Failed(UpgraderStateGraphError::MovingError(e)),
+					Failed(e) => Failed(StateUpgraderJobError::MovingError(e)),
 				}
 			}
 		}
