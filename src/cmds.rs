@@ -43,7 +43,7 @@ pub fn cmd_set_log_level(level: String) -> Result<(), String> {
 }
 
 #[wasm_bindgen]
-pub fn cmd_spawn(spawn: JsString, name: Option<String>, body: Option<Vec<JsValue>>) -> Result<(), String> {
+pub fn cmd_spawn(spawn: JsString, body: Option<Vec<JsValue>>, name: Option<String>) -> Result<(), String> {
 	let Some(spawn) = screeps::game::spawns_jsstring().get(spawn.clone()) else {
 		return Err(format!("Spawn '{spawn}' not found"));
 	};

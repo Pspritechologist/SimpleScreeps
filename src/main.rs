@@ -1,52 +1,5 @@
-use htn::prelude::*;
-
 fn main() {
 	setup_logging(log::LevelFilter::Trace);
-
-    let src = std::fs::read_to_string("src/script.test").unwrap();
-
-    let result = htn_lexer().parse(&src);
-    match result.output() {
-        Some(tokens) => {
-            if result.has_errors() {
-                println!("Lexing Errors:");
-                for err in result.errors() {
-                    println!("\t{err:?}");
-                }
-                println!();
-            }
-
-            let result = htn_parser().parse(&**tokens);
-            match result.output() {
-                Some(instrs) => {
-                    if result.has_errors() {
-                        println!("Parsing Errors:");
-                        for err in result.errors() {
-                            println!("\t{err:?}");
-                        }
-                        println!();
-                    }
-                    
-                    println!("Instructions:");
-                    for instr in instrs.iter() {
-                        println!("\t{instr:?}\n");
-                    }
-                },
-                None => {
-                    println!("Error parsing instructions:");
-                    for err in result.errors() {
-                        println!("\t{err:?}");
-                    }
-                }
-            }
-        },
-        None => {
-            println!("Error parsing tokens:");
-            for err in result.errors() {
-                println!("\t{err:?}");
-            }
-        }
-    }
 }
 
 fn setup_logging(verbosity: log::LevelFilter) {

@@ -1,8 +1,19 @@
+pub mod prelude {
+    use screeps::{Creep, ObjectId, Room, RoomObject, Structure, StructureController, StructureSpawn};
+
+	pub type CreepId = ObjectId<Creep>;
+	pub type RoomId = ObjectId<Room>;
+	pub type StructureId = ObjectId<Structure>;
+	pub type ControllerId = ObjectId<StructureController>;
+	pub type SpawnId = ObjectId<StructureSpawn>;
+	pub type RoomObjectId = ObjectId<RoomObject>;
+}
+
 const NAME_DATA: &[u8] = include_bytes!("../data/names.bit");
 const QUOTES: &[&str] = &[
 	// 10 characters limit.
 	"Im a creep",
-	"A loserrr"	,
+	"a wirdough",
 	"uwu"		,
 	"owo"		,
 	"awa"		,
@@ -37,6 +48,11 @@ const QUOTES: &[&str] = &[
 	"Hyaah!"	,
 	"Your mom!"	,
 	"Nyeh hehe!",
+	"Thriller"	,
+	"In the end",
+	"cabbeg"	,
+	"cabag"		,
+	"cabbege"	,
 ];
 
 thread_local! {
@@ -71,3 +87,58 @@ pub fn generate_name() -> String {
 // 		log::trace!("{} took {} CPU", $name, end - start);
 // 	};
 // }
+
+#[macro_export]
+macro_rules! conte {
+	($e:expr) => {
+		match $e {
+			Ok(v) => v,
+			Err(e) => continue,
+		}
+	};
+}
+
+#[macro_export]
+macro_rules! conto {
+	($e:expr) => {
+		match $e {
+			Some(v) => v,
+			None => continue,
+		}
+	};
+}
+
+#[macro_export]
+macro_rules! ign {
+	($e:expr) => {
+		let _ = $e;
+	};
+}
+
+#[macro_export]
+macro_rules! dbg {
+	($e:expr) => {
+		{
+			log::debug!("{:?}", $e);
+			$e
+		}
+	};
+}
+
+// #[macro_export]
+// macro_rules! include_mod {
+//     ($(#[$attr:meta])* $vis:vis $modname:ident) => {
+//         crate::include_mod!($(#[$attr])* $vis $modname, concat!("/", stringify!($modname), ".rs"));
+//     };
+
+//     ($(#[$attr:meta])* $vis:vis $modname:ident, $source:expr) => {
+//         #[rustfmt::skip]
+//         #[allow(clippy::extra_unused_lifetimes)]
+//         #[allow(clippy::needless_lifetimes)]
+//         #[allow(clippy::let_unit_value)]
+//         #[allow(clippy::just_underscores_and_digits)]
+//         $(#[$attr])* $vis mod $modname { include!(concat!(env!("OUT_DIR"), $source)); }
+//     };
+// }
+
+// include_mod!(pub state_enum);
