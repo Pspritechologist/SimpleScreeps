@@ -1,6 +1,7 @@
 pub mod general_states;
 pub mod harvester;
 pub mod upgrader;
+pub mod builder;
 
 pub use StateResult::*;
 pub use crate::utils::prelude::*;

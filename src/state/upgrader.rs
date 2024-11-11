@@ -3,8 +3,6 @@ use screeps::{ErrorCode, ResourceType};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct StateUpgraderJob {
-	pub job: RoomObjectId,
-
 	current_state: PotentialState,
 	target: ControllerId,
 	container: StructureId,
@@ -13,19 +11,18 @@ pub struct StateUpgraderJob {
 }
 
 impl StateUpgraderJob {
-	pub fn new(creep: &Creep, job: RoomObjectId, target: ControllerId, container: StructureId) -> Self {
+	pub fn new(creep: &Creep, target: ControllerId, container: StructureId) -> Self {
 		Self {
 			recurring: false,
-			..Self::new_recurring(creep, job, target, container)
+			..Self::new_recurring(creep, target, container)
 		}
 	}
 
-	pub fn new_recurring(creep: &Creep, job: RoomObjectId, target: ControllerId, container: StructureId) -> Self {
+	pub fn new_recurring(creep: &Creep, target: ControllerId, container: StructureId) -> Self {
 		let moving_to_container = creep.store().get_used_capacity(Some(ResourceType::Energy)) < creep.store().get_capacity(Some(ResourceType::Energy)) / 2;
 		let dest = if moving_to_container { container.resolve().unwrap().pos() } else { target.resolve().unwrap().pos() };
 
 		Self {
-			job,
 			current_state: PotentialState::Moving(StateMove::new_from_ends(creep.pos(), dest, 1)),
 			target,
 			container,

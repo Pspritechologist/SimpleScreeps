@@ -1,8 +1,9 @@
 {
 	"cSpell.words": [
-		"screeps"
+		"screeps",
+		"Upgrader"
 	],
 	"rust-analyzer.check.command": "check",
 	// "rust-analyzer.inlayHints.chainingHints.enable": false, // Fucking awful with Chumsky.
-	"workbench.externalBrowser": "http://localhost:8080/(http://screeps.simplestation.org:25310/)/#!/room/shard0/W5N8",
+	"vs-browser.url": "http://localhost:8080/(http://screeps.simplestation.org:25310/)/#!/room/shard0/W5N8",
 }

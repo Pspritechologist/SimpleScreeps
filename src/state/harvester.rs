@@ -48,8 +48,6 @@ impl State for StateHarvesting {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct StateHarvesterJob {
-	pub job: RoomObjectId,
-
 	current_state: PotentialState,
 	target: StructureId,
 	source: ObjectId<Source>,
@@ -58,19 +56,18 @@ pub struct StateHarvesterJob {
 }
 
 impl StateHarvesterJob {
-	pub fn new(creep: &Creep, job: RoomObjectId, target: StructureId, source: ObjectId<Source>) -> Self {
+	pub fn new(creep: &Creep, target: StructureId, source: ObjectId<Source>) -> Self {
 		Self {
 			recurring: false,
-			..Self::new_recurring(creep, job, target, source)
+			..Self::new_recurring(creep, target, source)
 		}
 	}
 
-	pub fn new_recurring(creep: &Creep, job: RoomObjectId, target: StructureId, source: ObjectId<Source>) -> Self {
+	pub fn new_recurring(creep: &Creep, target: StructureId, source: ObjectId<Source>) -> Self {
 		let moving_to_source = creep.store().get_free_capacity(Some(ResourceType::Energy)) > creep.store().get_capacity(Some(ResourceType::Energy)) as i32 / 2;
 		let dest = if moving_to_source { source.resolve().unwrap().pos() } else { target.resolve().unwrap().pos() };
 
 		Self {
-			job,
 			current_state: PotentialState::Moving(StateMove::new_from_ends(creep.pos(), dest, 1)),
 			target,
 			source,

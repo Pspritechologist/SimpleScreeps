@@ -6,51 +6,19 @@
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::collapsible_else_if)]
 
-use screeps::{find::{MY_CREEPS, SOURCES_ACTIVE}, game, Direction, HasId, HasPosition, MaybeHasId, Position, RoomObject, SharedCreepProperties, Structure, StructureController, Terrain};
-use state::{RoomObjectId, State, StateResult};
-use wasm_bindgen::prelude::*;
-
 pub mod logging;
 pub mod utils;
 pub mod cmds;
 pub mod memory;
 pub mod state;
+pub mod dynamic_stuff;
+
+use wasm_bindgen::prelude::*;
+use utils::prelude::*;
+use dynamic_stuff::DynState;
+use state::{RoomObjectId, StateResult};
 
 static INIT_LOGGING: std::sync::Once = std::sync::Once::new();
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum JobEnum {
-	Harvester(state::harvester::StateHarvesterJob),
-	Upgrader(state::upgrader::StateUpgraderJob),
-	Idle(state::StateIdle),
-}
-impl From<state::harvester::StateHarvesterJob> for JobEnum {
-	fn from(job: state::harvester::StateHarvesterJob) -> Self {
-		JobEnum::Harvester(job)
-	}
-}
-impl From<state::upgrader::StateUpgraderJob> for JobEnum {
-	fn from(job: state::upgrader::StateUpgraderJob) -> Self {
-		JobEnum::Upgrader(job)
-	}
-}
-impl From<state::StateIdle> for JobEnum {
-	fn from(job: state::StateIdle) -> Self {
-		JobEnum::Idle(job)
-	}
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-struct Job {
-	job: JobFlag,
-	id: RoomObjectId,
-}
-
-#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
-enum JobFlag {
-	Harvest,
-	Upgrade,
-}
 
 // add wasm_bindgen to any function you would like to expose for call from js
 // to use a reserved name as a function name, use `js_name`:
@@ -80,15 +48,12 @@ pub fn game_loop() {
 	for room in game::rooms().values() {
 		let job_cpu = screeps::game::cpu::get_used();
 
-		let sources = room.find(SOURCES_ACTIVE, None);
+		let sources = room.find(screeps::find::SOURCES_ACTIVE, None);
 		let mut room_jobs = Vec::with_capacity(sources.len() * 2);
 
 		if let Some(spawn_room) = &spawn_room && room == *spawn_room && let Some(controller) = spawn_room.controller() {
 			for _ in 0..creep_count.div_ceil(2) {
-				room_jobs.push(Job {
-					job: JobFlag::Upgrade,
-					id: controller.id().into_type(),
-				});
+				room_jobs.push(Job::Upgrade(controller.clone()));
 			}
 		}
 
@@ -96,19 +61,9 @@ pub fn game_loop() {
 		// let mut tick = false;
 		for source in sources {
 			let pos: Position = source.pos();
-			for dir in Direction::iter() {
-				if let Ok(pos) = pos.checked_add_direction(*dir) && terrain.get_xy(pos.xy()) != Terrain::Wall {
-					room_jobs.push(Job {
-						job: JobFlag::Harvest,
-						id: source.id().into_type(),
-					});
-					// if tick {
-						room_jobs.push(Job {
-							job: JobFlag::Harvest,
-							id: source.id().into_type(),
-						});
-					// }
-					// tick = !tick;
+			for dir in screeps::Direction::iter() {
+				if let Ok(pos) = pos.checked_add_direction(*dir) && terrain.get_xy(pos.xy()) != screeps::Terrain::Wall {
+					room_jobs.push(Job::Harvest(source.clone(), spawn.clone().into()));
 				}
 			}
 		}
@@ -116,62 +71,46 @@ pub fn game_loop() {
 		log::trace!("Spent {} CPU on room jobs", screeps::game::cpu::get_used() - job_cpu);
 		let creep_cpu = screeps::game::cpu::get_used();
 
-		for creep in room.find(MY_CREEPS, None) {
+		for creep in room.find(screeps::find::MY_CREEPS, None) {
 			let Some(mut creep_data) = global_memory.creep_data.get_mut(&conto!(creep.try_id())) else {
 				global_memory.creep_data.insert(conto!(creep.try_id()), Default::default());
 				creep_queue.push(creep);
 				continue;
 			};
 			
-			let Some(task) = creep_data.current_task.take() else {
+			let Some((job, mut state)) = creep_data.current_task.take() else {
 				creep_queue.push(creep);
 				continue;
 			};
-			
-			let next_task: JobEnum = match task {
-				JobEnum::Harvester(mut graph) => {
-					if let Some(i) = room_jobs.iter().position(|id| id.id == graph.job.into_type()) {
-						room_jobs.remove(i);
-					}
 
-					match graph.run(&creep, &mut creep_data) {
-						StateResult::Working => graph.into(),
-						StateResult::Finished(_) => {
-							log::info!("Creep {} finished Harvest task", creep.name());
-							creep_queue.push(creep);
-							state::StateIdle::default().into()
-						}
-						StateResult::Failed(e) => {
-							ign!(creep.say("harvest :(", true));
-							log::warn!("Creep {} failed to complete Harvest task: {:?}", creep.name(), e);
-							creep_queue.push(creep);
-							state::StateIdle::default().into()
-						}
-					}
-				},
-				JobEnum::Upgrader(mut graph) => {
-					if let Some(i) = room_jobs.iter().position(|id| id.id == graph.job.into_type()) {
-						room_jobs.remove(i);
-					}
+			if job.job == JobDiscriminants::Idle {
+				creep_queue.push(creep);
+				continue;
+			}
 
-					match graph.run(&creep, &mut creep_data) {
-						StateResult::Working => graph.into(),
-						StateResult::Finished(_) => {
-							log::info!("Creep {} finished Upgrade task", creep.name());
-							creep_queue.push(creep);
-							state::StateIdle::default().into()
-						}
-						StateResult::Failed(e) => {
-							ign!(creep.say("upgrade :(", true));
-							log::warn!("Creep {} failed to complete Upgrade task: {:?}", creep.name(), e);
-							creep_queue.push(creep);
-							state::StateIdle::default().into()
-						}
-					}
+			if let Some(i) = room_jobs.iter().position(|id| job.job ==  id.into()) {
+				room_jobs.remove(i);
+			}
+
+			let next_task = match state.state.run(&creep, &mut creep_data) {
+				StateResult::Working => {
+					(job, state)
 				}
-				JobEnum::Idle(_) => {
+				StateResult::Finished(r) => {
+					let res = format!("{r:#?}");
+					let r = if res.len() > 10 { format!("{:#?}", state.flag) } else { res };
+					ign!(creep.say(&format!("{:#?} :)", r), true));
+					log::info!("Creep {} finished task", creep.name());
 					creep_queue.push(creep);
-					continue;
+					new_idle()
+				}
+				StateResult::Failed(e) => {
+					let res = format!("{e:#?}");
+					let e = if res.len() > 10 { format!("{:#?}", state.flag) } else { res };
+					ign!(creep.say(&format!("{:#?} :(", e), true));
+					log::warn!("Creep {} failed to complete task: {:?}", creep.name(), e);
+					creep_queue.push(creep);
+					new_idle()
 				}
 			};
 
@@ -186,17 +125,24 @@ pub fn game_loop() {
 			// We ensure each Creep has a data entry above.
 			let creep_data = global_memory.creep_data.get_mut(&conto!(creep.try_id())).unwrap();
 			let Some(job) = room_jobs.pop() else {
-				creep_data.current_task = Some(state::StateIdle::default().into());
+				creep_data.current_task = Some(new_idle());
 				continue;
 			};
 
-			// creep_data.current_task = Some(state::harvester_graph::HarvesterStateGraph::new(&creep, job.id.into_type(), AsRef::<Structure>::as_ref(&spawn).id(), job.id.into_type()).into());
-			creep_data.current_task = Some(match job.job {
-				JobFlag::Harvest => state::harvester::StateHarvesterJob::new(&creep, job.id.into_type(), AsRef::<Structure>::as_ref(&spawn).id(), job.id.into_type()).into(),
-				JobFlag::Upgrade => state::upgrader::StateUpgraderJob::new(&creep, job.id.into_type(), job.id.into_type(), AsRef::<Structure>::as_ref(&spawn).id()).into(),
-			});
+			log::info!("Creep {} assigned to job {:?}", creep.name(), JobDiscriminants::from(&job));
 
-			log::info!("Creep {} assigned to job {:?}", creep.name(), job.job);
+			// creep_data.current_task = Some(state::harvester_graph::HarvesterStateGraph::new(&creep, job.id.into_type(), AsRef::<Structure>::as_ref(&spawn).id(), job.id.into_type()).into());
+			creep_data.current_task = Some(match job {
+				Job::Idle => unreachable!(),
+				Job::Harvest(ref source, ref target) => {
+					let state = state::harvester::StateHarvesterJob::new(&creep, target.id(), source.id());
+					(job.into(), DynState::new(state, dynamic_stuff::StateFlag::HarvesterJob))
+				}
+				Job::Upgrade(ref controller) => {
+					let state = state::upgrader::StateUpgraderJob::new(&creep, controller.id(), spawn.id().into_type());
+					(job.into(), DynState::new(state, dynamic_stuff::StateFlag::UpgraderJob))
+				}
+			});
 		}
 
 		let mut used: Vec<_> = screeps::game::creeps().keys().collect();
@@ -218,6 +164,42 @@ pub fn game_loop() {
 	log::trace!("Spent {} CPU on memory save", screeps::game::cpu::get_used() - cpu);
 
 	log::debug!("CPU used during tick: {}", screeps::game::cpu::get_used() - total_cpu);
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct JobIdentifier {
+	job: JobDiscriminants,
+	id: RoomObjectId,
+}
+
+impl From<Job> for JobIdentifier {
+	fn from(job: Job) -> Self {
+		Self {
+			id: match job {
+				Job::Idle => RoomObjectId::from_packed(0),
+				Job::Harvest(ref source, _) => source.id().into_type(),
+				Job::Upgrade(ref controller) => controller.id().into_type(),
+			},
+			job: job.into(),
+		}
+	}
+}
+
+fn new_idle() -> (JobIdentifier, DynState) {
+	(JobIdentifier {
+		job: JobDiscriminants::Idle,
+		id: RoomObjectId::from_packed(0),
+	},
+	DynState::new(state::StateIdle::default(), dynamic_stuff::StateFlag::Idle))
+}
+
+#[derive(strum::EnumDiscriminants, Clone, Debug)]
+#[strum_discriminants(derive(serde::Serialize, serde::Deserialize))]
+enum Job {
+	Harvest(Source, Structure),
+	Upgrade(StructureController),
+	//? Is kinda used as a fallback tag? It's not real.
+	#[allow(dead_code)] Idle,
 }
 
 // #[derive(tabled::Tabled)]

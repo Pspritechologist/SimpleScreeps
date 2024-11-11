@@ -26,11 +26,15 @@ macros = { path = "macros" }
 
 fastrand = "*"
 serde = { version = "*", features = [ "derive" ] }
-# serde-wasm-bindgen = "*"
+serde-wasm-bindgen = "*"
+erased-serde = "*"
 bitcode = { version = "*", features = [ "serde" ] }
 serde_json = "*"
 base64 = "*"
 vecmap-rs = { version = "*", features = [ "serde" ] }
+enum_dispatch = "*"
+tabled = "*"
+strum = { version = "*", features = [ "derive" ] }
 
 # htn = { path = "htn" }
 
@@ -40,6 +44,11 @@ vecmap-rs = { version = "*", features = [ "serde" ] }
 # serde = { version = "*", features = [ "derive" ] }
 # bitcode = { version = "*", features = [ "serde" ] }
 # serde_json = "*"
+proc-macro2 = "*"
+quote = "*"
+syn = { version = "*", features = [ "full" ] }
+walkdir = "*"
+prettyplease = "*"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"

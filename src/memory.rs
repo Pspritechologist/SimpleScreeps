@@ -1,17 +1,16 @@
 use base64::Engine;
 use screeps::{Creep, ObjectId};
 use vecmap::VecMap;
-use crate::state::*;
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct MemData {
 	pub creep_data: VecMap<ObjectId<Creep>, CreepData>,
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct CreepData {
 	// pub current_task: Option<Job>,
-	pub current_task: Option<crate::JobEnum>,
+	pub current_task: Option<(crate::JobIdentifier, crate::dynamic_stuff::DynState)>,
 }
 
 pub fn get_memory() -> MemData {
