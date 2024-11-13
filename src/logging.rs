@@ -35,9 +35,9 @@ pub fn setup_logging(verbosity: log::LevelFilter) {
         .level(verbosity)
         .format(|out, message, record| {
             out.finish(format_args!(
-                "({}) {}: {}",
+                r#"<span style="color:orange">{}</span>: {}"#,
                 record.level(),
-                record.target(),
+                // record.target(),
                 message
             ))
         })

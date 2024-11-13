@@ -22,49 +22,49 @@ pub fn get_memory() -> MemData {
 		return Default::default();
 	}
 
-	let data = base64::prelude::BASE64_STANDARD_NO_PAD.decode(
-		screeps::raw_memory::get().as_string().unwrap()
-	).unwrap_or_else(|err| {
-		log::error!("Failed to decode memory: '{err}'. Dumping memory...");
-		log::error!("{}", screeps::raw_memory::get().as_string().unwrap());
-		bitcode::serialize(&MemData::default()).unwrap()
-	});
+	// let data = base64::prelude::BASE64_STANDARD_NO_PAD.decode(
+	// 	screeps::raw_memory::get().as_string().unwrap()
+	// ).unwrap_or_else(|err| {
+	// 	log::error!("Failed to decode memory: '{err}'. Dumping memory...");
+	// 	log::error!("{}", screeps::raw_memory::get().as_string().unwrap());
+	// 	bitcode::serialize(&MemData::default()).unwrap()
+	// });
 
-	if let Ok(data) = bitcode::deserialize(&data) {
-		data
-	} else {
-		log::error!("Memory not valid Bitcode! Dumping memory...");
-		log::error!("{}", screeps::raw_memory::get().as_string().unwrap());
-		MemData::default()
-	}
-
-	// match serde_json::from_str(&raw_memory) {
-	// 	Ok(data) => data,
-	// 	Err(err) => {
-	// 		log::error!("Failed to deserialize memory: '{err}'. Dumping...");
-	// 		log::error!("{}", raw_memory);
-	// 		MemData::default()
-	// 	}
+	// if let Ok(data) = bitcode::deserialize(&data) {
+	// 	data
+	// } else {
+	// 	log::error!("Memory not valid Bitcode! Dumping memory...");
+	// 	log::error!("{}", screeps::raw_memory::get().as_string().unwrap());
+	// 	MemData::default()
 	// }
+
+	match serde_json::from_str(&raw_memory) {
+		Ok(data) => data,
+		Err(err) => {
+			log::error!("Failed to deserialize memory: '{err}'. Dumping...");
+			log::error!("{}", raw_memory);
+			MemData::default()
+		}
+	}
 }
 
 pub fn set_memory(data: &MemData) {
-	let data = match bitcode::serialize(data) {
-		Ok(data) => data,
-		Err(err) => {
-			log::error!("Failed to serialize memory: '{err}'.");
-			bitcode::serialize(&MemData::default()).unwrap()
-		}
-	};
-	let data = base64::prelude::BASE64_STANDARD_NO_PAD.encode(&data);
-
-	// let data = match serde_json::to_string(&data) {
+	// let data = match bitcode::serialize(data) {
 	// 	Ok(data) => data,
 	// 	Err(err) => {
 	// 		log::error!("Failed to serialize memory: '{err}'.");
-	// 		String::new()
+	// 		bitcode::serialize(&MemData::default()).unwrap()
 	// 	}
 	// };
+	// let data = base64::prelude::BASE64_STANDARD_NO_PAD.encode(&data);
+
+	let data = match serde_json::to_string(&data) {
+		Ok(data) => data,
+		Err(err) => {
+			log::error!("Failed to serialize memory: '{err}'.");
+			String::new()
+		}
+	};
 
 	screeps::raw_memory::set(&data.into());
 }

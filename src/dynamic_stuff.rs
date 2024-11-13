@@ -1,8 +1,6 @@
+use crate::state::{*, general_states::*, harvester::*, upgrader::*, builder::*};
 use std::{any::Any, fmt::Debug};
-
 use serde::ser::SerializeMap;
-
-use crate::state::{*, general_states::*, harvester::*, upgrader::*};
 
 pub type BoxedState = Box<dyn DynStateTrait>;
 
@@ -64,6 +62,7 @@ pub enum StateFlag {
 	Move,
 	HarvesterJob,
 	UpgraderJob,
+	BuilderJob,
 }
 
 impl<'de> serde::Deserialize<'de> for DynState {
@@ -96,6 +95,7 @@ impl<'de> serde::Deserialize<'de> for DynState {
 					StateFlag::Move => Box::new(map.next_value::<StateMove>()?),
 					StateFlag::HarvesterJob => Box::new(map.next_value::<StateHarvesterJob>()?),
 					StateFlag::UpgraderJob => Box::new(map.next_value::<StateUpgraderJob>()?),
+					StateFlag::BuilderJob => Box::new(map.next_value::<StateBuilderJob>()?),
 				};
 
 				Ok(DynState { state, flag })

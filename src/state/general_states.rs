@@ -91,7 +91,7 @@ impl StateWithdraw {
 		Self { target, resource, amount }
 	}
 
-	pub fn new_object(target: Structure, resource: ResourceType, amount: Option<u32>) -> Self {
+	pub fn new_object(target: &Structure, resource: ResourceType, amount: Option<u32>) -> Self {
 		Self { target: target.id(), resource, amount }
 	}
 }

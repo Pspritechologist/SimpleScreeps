@@ -13,6 +13,9 @@ pub mod memory;
 pub mod state;
 pub mod dynamic_stuff;
 
+use std::ops::Div;
+
+use screeps::ConstructionSite;
 use wasm_bindgen::prelude::*;
 use utils::prelude::*;
 use dynamic_stuff::DynState;
@@ -52,9 +55,14 @@ pub fn game_loop() {
 		let mut room_jobs = Vec::with_capacity(sources.len() * 2);
 
 		if let Some(spawn_room) = &spawn_room && room == *spawn_room && let Some(controller) = spawn_room.controller() {
-			for _ in 0..creep_count.div_ceil(2) {
+			for _ in 0..(creep_count as f32).div(2.).ceil() as u32 {
 				room_jobs.push(Job::Upgrade(controller.clone()));
 			}
+		}
+
+		let sites = room.find(screeps::find::MY_CONSTRUCTION_SITES, None);
+		for site in sites {
+			room_jobs.push(Job::Construct(site));
 		}
 
 		let mut terrain = room.get_terrain();
@@ -63,6 +71,7 @@ pub fn game_loop() {
 			let pos: Position = source.pos();
 			for dir in screeps::Direction::iter() {
 				if let Ok(pos) = pos.checked_add_direction(*dir) && terrain.get_xy(pos.xy()) != screeps::Terrain::Wall {
+					room_jobs.push(Job::Harvest(source.clone(), spawn.clone().into()));
 					room_jobs.push(Job::Harvest(source.clone(), spawn.clone().into()));
 				}
 			}
@@ -97,18 +106,14 @@ pub fn game_loop() {
 					(job, state)
 				}
 				StateResult::Finished(r) => {
-					let res = format!("{r:#?}");
-					let r = if res.len() > 10 { format!("{:#?}", state.flag) } else { res };
-					ign!(creep.say(&format!("{:#?} :)", r), true));
-					log::info!("Creep {} finished task", creep.name());
+					ign!(creep.say(":)", true));
+					log::info!("Creep {} finished task {:?} - {r:?}", creep.name(), state.flag);
 					creep_queue.push(creep);
 					new_idle()
 				}
 				StateResult::Failed(e) => {
-					let res = format!("{e:#?}");
-					let e = if res.len() > 10 { format!("{:#?}", state.flag) } else { res };
-					ign!(creep.say(&format!("{:#?} :(", e), true));
-					log::warn!("Creep {} failed to complete task: {:?}", creep.name(), e);
+					ign!(creep.say(":(", true));
+					log::warn!("Creep {} failed to complete task: {:?} - {e:?}", creep.name(), state.flag);
 					creep_queue.push(creep);
 					new_idle()
 				}
@@ -121,6 +126,7 @@ pub fn game_loop() {
 
 		let queue_cpu = screeps::game::cpu::get_used();
 
+		fastrand::shuffle(&mut room_jobs);
 		for creep in creep_queue.drain(..) {
 			// We ensure each Creep has a data entry above.
 			let creep_data = global_memory.creep_data.get_mut(&conto!(creep.try_id())).unwrap();
@@ -141,6 +147,10 @@ pub fn game_loop() {
 				Job::Upgrade(ref controller) => {
 					let state = state::upgrader::StateUpgraderJob::new(&creep, controller.id(), spawn.id().into_type());
 					(job.into(), DynState::new(state, dynamic_stuff::StateFlag::UpgraderJob))
+				}
+				Job::Construct(ref site) => {
+					let state = state::builder::StateBuilderJob::new(&creep, site.try_id().expect("Construction site doesn't have an ID"), spawn.id().into_type());
+					(job.into(), DynState::new(state, dynamic_stuff::StateFlag::BuilderJob))
 				}
 			});
 		}
@@ -179,6 +189,7 @@ impl From<Job> for JobIdentifier {
 				Job::Idle => RoomObjectId::from_packed(0),
 				Job::Harvest(ref source, _) => source.id().into_type(),
 				Job::Upgrade(ref controller) => controller.id().into_type(),
+				Job::Construct(ref site) => site.try_id().expect("Construction site doesn't have an ID").into_type(),
 			},
 			job: job.into(),
 		}
@@ -198,6 +209,7 @@ fn new_idle() -> (JobIdentifier, DynState) {
 enum Job {
 	Harvest(Source, Structure),
 	Upgrade(StructureController),
+	Construct(ConstructionSite),
 	//? Is kinda used as a fallback tag? It's not real.
 	#[allow(dead_code)] Idle,
 }
