@@ -1,4 +1,7 @@
+use crate::dynamic_stuff::DynState;
+
 use super::{*, general_states::*};
+use move_to::{StateMoveTo, StateMoveToExt};
 use screeps::{Creep, ErrorCode, ObjectId, ResourceType, Source };
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -51,51 +54,43 @@ pub struct StateHarvesterJob {
 	current_state: PotentialState,
 	target: StructureId,
 	source: ObjectId<Source>,
-	recurring: bool,
-	moving_to_source: bool,
 }
 
 impl StateHarvesterJob {
 	pub fn new(creep: &Creep, target: StructureId, source: ObjectId<Source>) -> Self {
-		Self {
-			recurring: false,
-			..Self::new_recurring(creep, target, source)
-		}
-	}
-
-	pub fn new_recurring(creep: &Creep, target: StructureId, source: ObjectId<Source>) -> Self {
 		let moving_to_source = creep.store().get_free_capacity(Some(ResourceType::Energy)) > creep.store().get_capacity(Some(ResourceType::Energy)) as i32 / 2;
 		let dest = if moving_to_source { source.resolve().unwrap().pos() } else { target.resolve().unwrap().pos() };
+		let current_state = if moving_to_source {
+			PotentialState::Harvesting(StateHarvesting::new(source).move_to_ends(creep, dest, 1))
+		} else {
+			PotentialState::Transferring(StateTransfer::new(target, ResourceType::Energy, None).move_to_ends(creep, dest, 1))
+		};
 
 		Self {
-			current_state: PotentialState::Moving(StateMove::new_from_ends(creep.pos(), dest, 1)),
+			current_state,
 			target,
 			source,
-			recurring: true,
-			moving_to_source,
 		}
 	}
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 enum PotentialState {
-	Harvesting(StateHarvesting),
-	Transferring(StateTransfer),
-	Moving(StateMove),
+	Harvesting(StateMoveTo<StateHarvesting>),
+	Transferring(StateMoveTo<StateTransfer>),
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum StateHarvesterJobError {
-	HarvestingError(<StateHarvesting as State>::Error),
-	TransferringError(<StateTransfer as State>::Error),
-	MovingError(<StateMove as State>::Error),
+	HarvestingError(<StateMoveTo<StateHarvesting> as State>::Error),
+	TransferringError(<StateMoveTo<StateTransfer> as State>::Error),
 	TargetNotReal,
 	SourceNotReal,
 }
 
 impl State for StateHarvesterJob {
 	type Error = StateHarvesterJobError;
-	type Return = ();
+	type Return = <StateTransfer as State>::Return;
 	fn run(&mut self, creep: &Creep, data: &mut CreepData) -> StateResult<Self::Return, Self::Error> {
 		match self.current_state {
 			PotentialState::Harvesting(ref mut state) => {
@@ -105,7 +100,7 @@ impl State for StateHarvesterJob {
 						let Some(target) = self.target.resolve() else {
 							return Failed(StateHarvesterJobError::TargetNotReal);
 						};
-						(self.moving_to_source, self.current_state) = (false, PotentialState::Moving(StateMove::new_from_ends_close(creep.pos(), target.pos())));
+						self.current_state = PotentialState::Transferring(StateTransfer::new(target.id(), ResourceType::Energy, None).move_to_ends(creep.pos(), target.pos(), 1));
 						self.run(creep, data)
 					}
 					Failed(e) => Failed(StateHarvesterJobError::HarvestingError(e)),
@@ -114,35 +109,56 @@ impl State for StateHarvesterJob {
 			PotentialState::Transferring(ref mut state) => {
 				match state.run(creep, data) {
 					Working => Working,
-					Finished(_) => {
-						let Some(source) = self.source.resolve() else {
-							return Failed(StateHarvesterJobError::SourceNotReal);
-						};
-						
-						if self.recurring {
-							(self.moving_to_source, self.current_state) = (true, PotentialState::Moving(StateMove::new_from_ends_close(creep.pos(), source.pos())));
-							Working
-						} else {
-							Finished(())
-						}
-					}
-					Failed(e) => Failed(StateHarvesterJobError::TransferringError(e)),
-				}
-			}
-			PotentialState::Moving(ref mut state) => {
-				match state.run(creep, data) {
-					Working => Working,
-					Finished(_) => {
-						if self.moving_to_source {
-							self.current_state = PotentialState::Harvesting(StateHarvesting::new(self.source));
-						} else {
-							self.current_state = PotentialState::Transferring(StateTransfer::new(self.target, ResourceType::Energy, None));
+					Finished(TransferReturn::Leftover(amnt)) => {
+						// Hacky
+						if amnt < 80 {
+							return Finished(TransferReturn::Leftover(amnt));
 						}
 
-						// We run again because a completed move state means we've already arrived.
-						self.run(creep, data)
-					}
-					Failed(e) => Failed(StateHarvesterJobError::MovingError(e)),
+						let Some(controller) = (try {
+							creep.room()?.controller()?
+						}) else {
+							return Finished(TransferReturn::Leftover(amnt));
+						};
+
+						let mut upgrade_state = super::upgrader::StateUpgraderJob::new(creep, controller.id(), self.target);
+
+						if let Failed(e) = upgrade_state.run(creep, data) {
+							log::warn!("Failed to upgrade controller while harvesting: {:?}", e);
+							return Finished(TransferReturn::Leftover(amnt));
+						}
+
+						data.current_task = Some((
+							crate::JobIdentifier { id: controller.id().into_type(), job: crate::JobFlag::Upgrade },
+							DynState::new(upgrade_state, crate::dynamic_stuff::StateFlag::UpgraderJob)
+						));
+
+						Working
+					},
+					Finished(f) => Finished(f),
+					Failed(move_to::MoveToError::<TransferError>::StateError(TransferError::TargetFull)) => {
+						// Hacky
+						let Some(controller) = (try {
+							creep.room()?.controller()?
+						}) else {
+							return Finished(TransferReturn::Leftover(0));
+						};
+
+						let mut upgrade_state = super::upgrader::StateUpgraderJob::new(creep, controller.id(), self.target);
+
+						if let Failed(e) = upgrade_state.run(creep, data) {
+							log::warn!("Failed to upgrade controller while harvesting: {:?}", e);
+							return Finished(TransferReturn::Leftover(0));
+						}
+
+						data.current_task = Some((
+							crate::JobIdentifier { id: controller.id().into_type(), job: crate::JobFlag::Upgrade },
+							DynState::new(upgrade_state, crate::dynamic_stuff::StateFlag::UpgraderJob)
+						));
+
+						Working
+					},
+					Failed(e) => Failed(StateHarvesterJobError::TransferringError(e)),
 				}
 			}
 		}

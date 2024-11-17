@@ -1,4 +1,6 @@
 pub mod prelude {
+	pub use crate::state::State;
+
 	pub use screeps::prelude::*;
     pub use screeps::{game, Creep, ObjectId, Room, RoomObject, Structure, StructureController, StructureSpawn, Source, Position};
 
@@ -12,50 +14,6 @@ pub mod prelude {
 }
 
 const NAME_DATA: &[u8] = include_bytes!("../data/names.bit");
-const QUOTES: &[&str] = &[
-	// 10 characters limit.
-	"Im a creep",
-	"a wirdough",
-	"uwu"		,
-	"owo"		,
-	"awa"		,
-	"nya"		,
-	"uwu"		,
-	"owo"		,
-	"awa"		,
-	"nya"		,
-	"uwu"		,
-	"owo"		,
-	"uwu"		,
-	"owo"		,
-	"uwu"		,
-	"owo"		,
-	"Death eggs",
-	"are wet"	,
-	"bungo"		,
-	"bongo"		,
-	"bingo"		,
-	"Hello!"	,
-	"Hi there!"	,
-	"Howdy!"	,
-	"Greetings!",
-	"Howdy doo!",
-	"Hey!"		,
-	"Listen!"	,
-	"Watch out!",
-	"Behind you",
-	"Boo!"		,
-	"Dark days"	,
-	"Roll bluff",
-	"Hyaah!"	,
-	"Your mom!"	,
-	"Nyeh hehe!",
-	"Thriller"	,
-	"In the end",
-	"cabbeg"	,
-	"cabag"		,
-	"cabbege"	,
-];
 
 thread_local! {
 	pub static NAMES: Vec<String> = bitcode::decode(NAME_DATA).unwrap();

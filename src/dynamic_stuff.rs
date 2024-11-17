@@ -1,4 +1,4 @@
-use crate::state::{*, general_states::*, harvester::*, upgrader::*, builder::*};
+use crate::state::{*, general_states::*, harvester::*, upgrader::*, builder::*, seppuku::*};
 use std::{any::Any, fmt::Debug};
 use serde::ser::SerializeMap;
 
@@ -56,6 +56,7 @@ impl DynState {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum StateFlag {
 	Idle,
+	Seppuku,
 	Harvesting,
 	Transfer,
 	Withdraw,
@@ -89,6 +90,7 @@ impl<'de> serde::Deserialize<'de> for DynState {
 
 				let state: BoxedState = match flag {
 					StateFlag::Idle => Box::new(map.next_value::<StateIdle>()?),
+					StateFlag::Seppuku => Box::new(map.next_value::<StateSeppuku>()?),
 					StateFlag::Harvesting => Box::new(map.next_value::<StateHarvesting>()?),
 					StateFlag::Transfer => Box::new(map.next_value::<StateTransfer>()?),
 					StateFlag::Withdraw => Box::new(map.next_value::<StateWithdraw>()?),

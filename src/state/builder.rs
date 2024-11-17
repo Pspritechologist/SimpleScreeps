@@ -1,8 +1,9 @@
-use general_states::{StateMove, StateWithdraw};
-use move_to::StateMoveTo;
-use screeps::{ConstructionSite, ErrorCode, ResourceType};
-
 use super::*;
+use screeps::{ConstructionSite, ErrorCode, ResourceType};
+use general_states::{StateMove, StateWithdraw};
+use move_to::{MoveToError, StateMoveTo, StateMoveToExt};
+use reoccurring::{CheckFunc, StateReoccurring, StateReoccurringExt};
+use crate::reoccurring_check;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct StateBuilding {
@@ -30,7 +31,7 @@ pub enum BuildError {
 	Unknown,
 }
 
-#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BuildReturn {
 	Constructed,
 	InProgress,
@@ -49,9 +50,6 @@ impl State for StateBuilding {
 	fn run(&mut self, creep: &Creep, _data: &mut CreepData) -> StateResult<Self::Return, Self::Error> {
 		let target = self.target.resolve().ok_or(BuildError::TargetNotReal)?;
 
-		//TODO: A single build action only delivers a small amount of energy- it seems to be 5 per fire.
-		//TODO: I don't know how much this increases per build part, but probably by five. I need to try and find a constant
-		//TODO: for it and implement this logic to continue firing until empty or built.
 		let verge = creep.store().get_used_capacity(Some(ResourceType::Energy)) >= 
 			target.progress_total() - target.progress();
 
@@ -93,13 +91,12 @@ impl StateBuilderJob {
 			&& creep.store().get_used_capacity(Some(ResourceType::Energy)) < required
 		{
 			let dest = container.resolve().unwrap();
-			let move_state = StateMove::new_from_ends(creep, dest, 1);
-			let withdraw_state = StateWithdraw::new(container, ResourceType::Energy, None);
-			PotentialState::Collecting(StateMoveTo::new(move_state, withdraw_state))
+			PotentialState::Collecting(StateWithdraw::new(container, ResourceType::Energy, None)
+				.move_to(StateMove::new_from_ends(creep, dest, 1)))
 		} else {
-			let move_state = StateMove::new_from_ends(creep, site, 3);
-			let build_state = StateBuilding::new(target);
-			PotentialState::Building(StateMoveTo::new(move_state, build_state))
+			PotentialState::Building(StateBuilding::new(target)
+				.reoccurring_cond(ReoccurringBuildCheck::default())
+				.move_to(StateMove::new_from_ends(creep, site, 3)))
 		};
 
 		Self { target, container, current_state }
@@ -108,23 +105,33 @@ impl StateBuilderJob {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 enum PotentialState {
-	Building(StateMoveTo<StateBuilding>),
+	Building(StateMoveTo<StateReoccurring<StateBuilding, ReoccurringBuildCheck>>),
 	Collecting(StateMoveTo<StateWithdraw>),
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+// #[derive(Clone, Copy, Debug, Default, serde::Serialize, serde::Deserialize)]
+// struct ReoccurringBuildCheck;
+// impl CheckFunc<StateBuilding> for ReoccurringBuildCheck {
+// 	fn check(&mut self, return_val: BuildReturn, _state: &StateBuilding) -> bool {
+// 		return_val == BuildReturn::InProgress
+// 	}
+// }
+
+reoccurring_check!(ReoccurringBuildCheck, StateBuilding, |ret| ret == BuildReturn::InProgress);
+
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum StateBuilderJobError {
 	BuildingError(<StateMoveTo<StateBuilding> as State>::Error),
 	CollectingError(<StateMoveTo<StateWithdraw> as State>::Error),
 	TargetNotReal,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Constructed;
 
 impl State for StateBuilderJob {
 	type Error = StateBuilderJobError;
-	type Return = Constructed;
+	type Return = BuildReturn;
 
 	fn run(&mut self, creep: &Creep, data: &mut CreepData) -> StateResult<Self::Return, Self::Error> {
 		match self.current_state {
@@ -132,13 +139,14 @@ impl State for StateBuilderJob {
 				match state.run(creep, data) {
 					Working => Working,
 					Finished(BuildReturn::InProgress) => {
-						let cont = self.container.resolve().ok_or(StateBuilderJobError::TargetNotReal)?;
-						let move_state = StateMove::new_from_ends_lazy(creep, cont, 1);
-						let withdraw_state = StateWithdraw::new(self.container, ResourceType::Energy, None);
-						self.current_state = PotentialState::Collecting(StateMoveTo::new(move_state, withdraw_state));
-						Working
+						// let cont = self.container.resolve().ok_or(StateBuilderJobError::TargetNotReal)?;
+						// self.current_state = PotentialState::Collecting(StateWithdraw::new(self.container, ResourceType::Energy, None)
+						// 	.move_to(StateMove::new_from_ends(creep, cont, 1)));
+						// Working
+						unreachable!()
 					},
-					Finished(BuildReturn::Constructed) => Finished(Constructed),
+					Finished(BuildReturn::Constructed) => Finished(BuildReturn::Constructed),
+					Failed(MoveToError::StateError(BuildError::Empty)) => Finished(BuildReturn::InProgress),
 					Failed(e) => Failed(StateBuilderJobError::BuildingError(e)),
 				}
 			},
@@ -147,9 +155,9 @@ impl State for StateBuilderJob {
 					Working => Working,
 					Finished(_) => {
 						let site = self.target.resolve().ok_or(StateBuilderJobError::TargetNotReal)?;
-						let move_state = StateMove::new_from_ends_lazy(creep, site, 3);
-						let build_state = StateBuilding::new(self.target);
-						self.current_state = PotentialState::Building(StateMoveTo::new(move_state, build_state));
+						self.current_state = PotentialState::Building(StateBuilding::new(self.target)
+							.reoccurring_cond(ReoccurringBuildCheck::default())
+							.move_to(StateMove::new_from_ends(creep, site, 3)));
 						Working
 					},
 					Failed(e) => Failed(StateBuilderJobError::CollectingError(e)),

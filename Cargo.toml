@@ -24,13 +24,14 @@ web-sys = { version = "*", features = [ "console" ] }
 
 macros = { path = "macros" }
 
-fastrand = "*"
 serde = { version = "*", features = [ "derive" ] }
 serde-wasm-bindgen = "*"
 erased-serde = "*"
 bitcode = { version = "*", features = [ "serde" ] }
 serde_json = "*"
+rmp-serde = "*"
 base64 = "*"
+fastrand = "*"
 vecmap-rs = { version = "*", features = [ "serde" ] }
 enum_dispatch = "*"
 tabled = "*"

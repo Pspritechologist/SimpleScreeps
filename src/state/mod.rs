@@ -3,6 +3,10 @@ pub mod harvester;
 pub mod upgrader;
 pub mod builder;
 pub mod move_to;
+pub mod reoccurring;
+pub mod seppuku;
+pub mod and_then;
+pub mod ignore_then;
 
 use std::ops::Try;
 
@@ -96,8 +100,8 @@ impl<R, E> std::ops::FromResidual<!> for StateResult<R, E> {
 }
 
 pub trait State: Clone + serde::Serialize {
-	type Error;
-	type Return;
+	type Error: Copy;
+	type Return: Copy;
 	fn run(&mut self, creep: &Creep, data: &mut CreepData) -> StateResult<Self::Return, Self::Error>;
 }
 
@@ -109,10 +113,12 @@ impl State for StateIdle {
 	type Return = !;
 
 	fn run(&mut self, creep: &Creep, _data: &mut CreepData) -> StateResult<Self::Return, Self::Error> {
-		if self.0 >= game::time() {
+		// if self.0 <= game::time() {
 			ign!(creep.say("Idling...", true));
 			ign!(creep.move_direction(screeps::Direction::Top.multi_rot(fastrand::i8(..))));
-		}
+
+			// self.0 = game::time() + fastrand::u32(5..20);
+		// }
 
 		Working
 	}

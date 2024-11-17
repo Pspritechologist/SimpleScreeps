@@ -4,7 +4,7 @@ use js_sys::JsString;
 use screeps::Part;
 use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 
-use crate::utils;
+use crate::utils::{self, prelude::*};
 
 
 // #[wasm_bindgen]
@@ -64,4 +64,22 @@ pub fn cmd_spawn(spawn: JsString, body: Option<Vec<JsValue>>, name: Option<Strin
 			err => Err(format!("Unknown error: {err:?}")),
 		}
 	}
+}
+
+#[wasm_bindgen]
+pub fn cmd_get_state(creep: JsString) -> Result<String, JsString> {
+	let Some(creep) = screeps::game::creeps_jsstring().get(creep.clone()) else {
+		return Err(format!("Creep '{creep}' not found").into());
+	};
+
+	let state = crate::memory::get_memory()
+		.creep_data.remove(&creep.try_id().ok_or(JsString::from_str("Creep has no ID").unwrap())?)
+		.ok_or(JsString::from_str("No entry for Creep").unwrap())?
+		.current_task
+		.ok_or(JsString::from_str("Creep has no current task").unwrap())?
+		.1
+		.state
+		;
+
+	Ok(format!("{:?}", state))
 }

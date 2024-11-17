@@ -39,7 +39,7 @@ enum PotentialState {
 	Moving(StateMove),
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum StateUpgraderJobError {
 	WithdrawingError(<StateWithdraw as State>::Error),
 	MovingError(<StateMove as State>::Error),

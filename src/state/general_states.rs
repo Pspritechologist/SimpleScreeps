@@ -15,15 +15,16 @@ pub struct StateTransfer {
 	target: ObjectId<Structure>,
 	resource: ResourceType,
 	amount: Option<u32>,
+	amount_before: Option<u32>,
 }
 
 impl StateTransfer {
 	pub fn new(target: ObjectId<Structure>, resource: ResourceType, amount: Option<u32>) -> Self {
-		Self { target, resource, amount }
+		Self { target, resource, amount, amount_before: None }
 	}
 
 	pub fn new_object(target: Structure, resource: ResourceType, amount: Option<u32>) -> Self {
-		Self { target: target.id(), resource, amount }
+		Self { target: target.id(), resource, amount, amount_before: None }
 	}
 }
 
@@ -41,8 +42,8 @@ pub enum TransferError {
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum TransferReturn {
 	Empty,
-	Leftover,
-	NotEnough,
+	Leftover(u32),
+	NotEnough(u32),
 }
 
 impl State for StateTransfer {
@@ -50,31 +51,47 @@ impl State for StateTransfer {
 	type Return = TransferReturn;
 
 	fn run(&mut self, creep: &Creep, _data: &mut CreepData) -> StateResult<Self::Return, Self::Error> {
-		if creep.store().get_used_capacity(Some(self.resource)) == 0 {
-			return Failed(TransferError::Empty);
-		}
-
-		let Some(target) = self.target.resolve() else {
-			return Failed(TransferError::TargetNotReal);
-		};
-		let target = StructureObject::from(target);
-		let Some(target) = target.as_transferable() else {
-			return Failed(TransferError::InvalidTarget);
-		};
-
-		if let Err(e) = creep.transfer(target, self.resource, self.amount) {
-			match e {
-				ErrorCode::Full => return Finished(TransferReturn::Leftover),
-				ErrorCode::NotEnough => {
-					ign!(creep.transfer(target, self.resource, None));
-					return Finished(TransferReturn::NotEnough);
-				}
-				ErrorCode::NotInRange => return Failed(TransferError::OutOfRange),
-				ErrorCode::InvalidTarget => return Failed(TransferError::InvalidTarget),
-				_ => return Failed(TransferError::Unknown),
+		if let Some(last_store) = self.amount_before {
+			let current = creep.store().get_used_capacity(Some(self.resource));
+			
+			if last_store - current < self.amount.unwrap_or(0) {
+				return Finished(TransferReturn::NotEnough(last_store - current));
 			}
+
+			if current == 0 {
+				return Finished(TransferReturn::Empty);
+			}
+
+			return Finished(TransferReturn::Leftover(current));
 		} else {
-			return Finished(TransferReturn::Empty);
+			if creep.store().get_used_capacity(Some(self.resource)) == 0 {
+				return Failed(TransferError::Empty);
+			}
+
+			let Some(target) = self.target.resolve() else {
+				return Failed(TransferError::TargetNotReal);
+			};
+			let target = StructureObject::from(target);
+			let Some(target) = target.as_transferable() else {
+				return Failed(TransferError::InvalidTarget);
+			};
+
+			self.amount_before = Some(creep.store().get_used_capacity(Some(self.resource)));
+
+			if let Err(e) = creep.transfer(target, self.resource, self.amount) {
+				match e {
+					ErrorCode::Full => return Failed(TransferError::TargetFull),
+					ErrorCode::NotEnough => {
+						ign!(creep.transfer(target, self.resource, None));
+						return Finished(TransferReturn::NotEnough(0));
+					}
+					ErrorCode::NotInRange => return Failed(TransferError::OutOfRange),
+					ErrorCode::InvalidTarget => return Failed(TransferError::InvalidTarget),
+					_ => return Failed(TransferError::Unknown),
+				}
+			}
+
+			Working
 		}
 	}
 }
@@ -272,5 +289,42 @@ fn find_path(start: &impl HasPosition, end: &impl HasPosition) -> String {
 	match start.pos().find_path_to::<_, _, screeps::pathfinder::SingleRoomCostResult>(&end.pos(), Some(screeps::FindPathOptions::default().serialize(true))) {
 		screeps::Path::Serialized(path) => path,
 		_ => unreachable!()
+	}
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct StateSinging<L> {
+	lyrics: L,
+}
+
+pub trait Lyrics: serde::Serialize + Clone {
+	fn next_line(&mut self) -> Option<&str>;
+}
+
+impl<L: Lyrics> StateSinging<L> {
+	pub fn new(lyrics: L) -> Self {
+		Self { lyrics }
+	}
+}
+
+impl<L: Lyrics + Default> Default for StateSinging<L> {
+	fn default() -> Self {
+		Self::new(L::default())
+	}
+}
+
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+pub struct DoneSinging;
+
+impl<L: Lyrics> State for StateSinging<L> {
+	type Error = !;
+	type Return = DoneSinging;
+
+	fn run(&mut self, creep: &Creep, _data: &mut CreepData) -> StateResult<Self::Return, Self::Error> {
+		let Some(word) = self.lyrics.next_line() else {
+			return Finished(DoneSinging);
+		};
+		ign!(creep.say(&word, true));
+		Working
 	}
 }

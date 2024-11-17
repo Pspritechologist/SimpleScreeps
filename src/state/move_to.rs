@@ -21,6 +21,10 @@ impl<S: State> StateMoveTo<S> {
 		}
 	}
 
+	pub fn new_from_ends(state: S, start: impl HasPosition, end: impl HasPosition, range: u8) -> Self {
+		Self::new(general_states::StateMove::new_from_ends(start, end, range), state)
+	}
+
 	pub fn current_state(&self) -> MoveToStateFlag {
 		if self.in_move_state {
 			MoveToStateFlag::Moving
@@ -56,3 +60,27 @@ impl<S: State> State for StateMoveTo<S> {
 		}
 	}
 }
+
+pub trait StateMoveToExt: State {
+	fn move_to(self, move_state: general_states::StateMove) -> StateMoveTo<Self> {
+		StateMoveTo::new(move_state, self)
+	}
+
+	fn move_to_ends(self, start: impl HasPosition, end: impl HasPosition, range: u8) -> StateMoveTo<Self> {
+		StateMoveTo::new_from_ends(self, start, end, range)
+	}
+}
+
+impl<S: State> StateMoveToExt for S { }
+
+pub trait StateMoveToDefaultExt: StateMoveToExt + Default {
+	fn move_to_default(move_state: general_states::StateMove) -> StateMoveTo<Self> {
+		StateMoveTo::new(move_state, Default::default())
+	}
+
+	fn move_to_default_ends(start: impl HasPosition, end: impl HasPosition, range: u8) -> StateMoveTo<Self> {
+		StateMoveTo::new_from_ends(Default::default(), start, end, range)
+	}
+}
+
+impl<S: StateMoveToExt + Default> StateMoveToDefaultExt for S { }
