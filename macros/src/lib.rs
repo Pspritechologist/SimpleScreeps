@@ -1,3 +1,5 @@
+#![feature(let_chains)]
+
 // use std::env::current_dir;
 
 // use proc_macro::TokenStream;
@@ -5,6 +7,65 @@
 // use self_rust_tokenize::SelfRustTokenize;
 // use syn::{parse_macro_input, LitStr};
 // use htn::prelude::*;
+
+use derive_syn_parse::Parse;
+use proc_macro::TokenStream;
+use quote::quote;
+use syn::{parse_macro_input, Ident, LitStr};
+
+#[proc_macro]
+pub fn lyric_chop(input: TokenStream) -> TokenStream {
+	#[derive(Parse)]
+	struct Input {
+		ident: Ident,
+		_comma: syn::Token![,],
+		words: LitStr,
+	}
+
+	let input = parse_macro_input!(input as Input);
+	let ident = input.ident;
+	let input = input.words.value();
+
+	let mut words = input.split_whitespace().peekable();
+	let word_count = words.clone().count();
+
+	let mut chunks: Vec<String> = Vec::with_capacity(word_count);
+	while let Some(word) = words.next() {
+		fn handle_word<'a>(words: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>, word: String) -> Vec<String> {
+			if word.len() > 10 {
+				let top = format!("{}-", &word[..9]);
+				let mut ret = vec![top];
+				ret.extend(handle_word(words, word[9..].to_string()));
+				ret
+			} else if let Some(next) = words.peek() && next.len() + word.len() <= 9 {
+				let next = words.next().unwrap();
+				let new = format!("{} {}", word, next);
+				handle_word(words, new)
+			} else {
+				vec![word]
+			}
+		}
+
+		chunks.append(&mut handle_word(&mut words, word.to_string()));
+	}
+
+	// let chunks = chunks.into_iter().map(|chunk| {
+	// 	LitStr::new(&chunk, proc_macro2::Span::call_site())
+	// });
+
+	let chunk_count = chunks.len();
+	
+	let output = quote! {
+		pub const #ident: [&str; #chunk_count] = [#(#chunks),*];
+	};
+
+	output.into()
+}
+
+#[proc_macro_attribute]
+pub fn state(_attr: TokenStream, input: TokenStream) -> TokenStream {
+	input
+}
 
 // #[proc_macro]
 // pub fn embed_htn(input: TokenStream) -> TokenStream {
